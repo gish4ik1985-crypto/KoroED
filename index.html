@@ -21,11 +21,12 @@
    Дерево = зоны Корни → Ствол → Ветви, в каждой подуровни-лабиринты.
    Цель: собрать личинок (минимум 4 из 5) и вылететь, пока дерево не срубили.
    ===================================================================== */
-const S = 8, VW = 120, VH = 80, K = 2, RB = 4;   // S — экранных px на клетку, RB — px буфера на клетку
+const S = 8, VW = 120, VH = 80, K = 2; let RB = 4;   // S — экранных px на клетку, RB — px буфера на клетку
 const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
 const FONT = '"Segoe UI", "Helvetica Neue", Roboto, Arial, sans-serif';
 const off = document.createElement('canvas'); off.width = (VW + 2) * RB; off.height = (VH + 2) * RB;
-const octx = off.getContext('2d'), vimg = octx.createImageData(off.width, off.height);
+const octx = off.getContext('2d'); let vimg = octx.createImageData(off.width, off.height);
+function setQuality(q) { RB = q === 'low' ? 2 : 4; off.width = (VW + 2) * RB; off.height = (VH + 2) * RB; vimg = octx.createImageData(off.width, off.height); }
 const mmC = document.createElement('canvas'), mmX = mmC.getContext('2d');
 
 const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
@@ -50,9 +51,10 @@ for (let y = 0; y < 256; y++) for (let x = 0; x < 256; x++)
   GRAIN[y * 256 + x] = pnoise(x / 4, y / 32, 64, 8, 3) * .55 + pnoise(x / 2, y / 16, 128, 16, 4) * .3 + hash2(x, y, 9) * .15;
 
 // ---------- текст ----------
-function ft(s, x, y) { ctx.lineJoin = 'round'; ctx.lineWidth = 3.5; ctx.strokeStyle = 'rgba(8,6,2,.85)'; ctx.strokeText(s, x, y); ctx.fillText(s, x, y); }
+function ft(s, x, y) { s = tr(s); ctx.lineJoin = 'round'; ctx.lineWidth = 3.5; ctx.strokeStyle = 'rgba(8,6,2,.85)'; ctx.strokeText(s, x, y); ctx.fillText(s, x, y); }
 function txt(s, x, y, size, col, al, bold) { ctx.font = (bold ? 'bold ' : '') + size + 'px ' + FONT; ctx.fillStyle = col; ctx.textAlign = al || 'center'; ft(s, x, y); }
 function wrap(s, x, y, w, size, col, al, lh) {
+  s = tr(s);
   ctx.font = size + 'px ' + FONT; const words = s.split(' '); let line = '', yy = y; lh = lh || size + 5;
   for (const wd of words) { const t = line ? line + ' ' + wd : wd; if (ctx.measureText(t).width > w && line) { txt(line, x, yy, size, col, al); line = wd; yy += lh; } else line = t; }
   txt(line, x, yy, size, col, al); return yy;
@@ -61,7 +63,7 @@ function rrect(x, y, w, h, r) { r = Math.min(r, w / 2, h / 2); ctx.beginPath(); 
 function panel(x, y, w, h, a) { rrect(x, y, w, h, 14); ctx.fillStyle = `rgba(10,12,7,${a || .82})`; ctx.fill(); ctx.strokeStyle = 'rgba(160,130,70,.55)'; ctx.lineWidth = 1.5; ctx.stroke(); }
 
 // ---------- кнопки (мышь + горячие клавиши) ----------
-let btns = [], mouse = { x: -1, y: -1 };
+let btns = [], mouse = { x: -1, y: -1 }, dragBtn = null;
 function btn(label, x, y, w, h, fn, o) {
   o = o || {};
   const hov = mouse.x >= x && mouse.x <= x + w && mouse.y >= y && mouse.y <= y + h, dis = !!o.disabled, r = Math.min(12, h / 2);
@@ -82,12 +84,14 @@ function btn(label, x, y, w, h, fn, o) {
 }
 
 // ===================== ЗВУК =====================
-let AC = null, master = null, noiseBuf = null;
+let AC = null, master = null, noiseBuf = null, busSfx = null, busMus = null, busAmb = null;
+function applyVolumes() { if (!AC) return; const st = meta.set; master.gain.value = meta.sound ? st.vol * .7 : 0; busSfx.gain.value = st.sfx; busMus.gain.value = st.mus; busAmb.gain.value = st.amb; }
 function audioInit() {
   if (AC) return;
   try {
     AC = new (window.AudioContext || window.webkitAudioContext)();
     master = AC.createGain(); master.gain.value = .5; master.connect(AC.destination);
+    busSfx = AC.createGain(); busMus = AC.createGain(); busAmb = AC.createGain(); for (const b of [busSfx, busMus, busAmb]) b.connect(master); applyVolumes();
     noiseBuf = AC.createBuffer(1, AC.sampleRate, AC.sampleRate);
     const d = noiseBuf.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
   } catch (e) { AC = null; }
@@ -97,7 +101,7 @@ function sndNoise(freq, dur, vol, q) {
   const s = AC.createBufferSource(); s.buffer = noiseBuf; s.playbackRate.value = .8 + Math.random() * .5;
   const f = AC.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = freq; f.Q.value = q || 1.5;
   const g = AC.createGain(), t = AC.currentTime; g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(.001, t + dur);
-  s.connect(f); f.connect(g); g.connect(master); s.start(t, Math.random()); s.stop(t + dur + .05);
+  s.connect(f); f.connect(g); g.connect(busSfx); s.start(t, Math.random()); s.stop(t + dur + .05);
 }
 function sndTone(freq, dur, vol, type, slide) {
   if (!AC || !meta.sound) return;
@@ -105,21 +109,21 @@ function sndTone(freq, dur, vol, type, slide) {
   o.type = type || 'sine'; o.frequency.setValueAtTime(freq, t);
   if (slide) o.frequency.exponentialRampToValueAtTime(Math.max(20, freq * slide), t + dur);
   g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(.001, t + dur);
-  o.connect(g); g.connect(master); o.start(t); o.stop(t + dur + .05);
+  o.connect(g); g.connect(busSfx); o.start(t); o.stop(t + dur + .05);
 }
 function sndSweep(f0, f1, dur, vol, q) { // шуршащий «вжух» (шум с бегущим фильтром)
   if (!AC || !meta.sound) return;
   const src = AC.createBufferSource(); src.buffer = noiseBuf; const f = AC.createBiquadFilter(), g = AC.createGain(), t = AC.currentTime;
   f.type = 'bandpass'; f.Q.value = q || 3; f.frequency.setValueAtTime(f0, t); f.frequency.exponentialRampToValueAtTime(f1, t + dur);
   g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(vol, t + dur * .3); g.gain.exponentialRampToValueAtTime(.001, t + dur);
-  src.connect(f); f.connect(g); g.connect(master); src.start(t, Math.random()); src.stop(t + dur + .05);
+  src.connect(f); f.connect(g); g.connect(busSfx); src.start(t, Math.random()); src.stop(t + dur + .05);
 }
-function pluck(f, v, len) {
+function pluck(f, v, len, bus) {
   if (!AC || !meta.sound) return;
   const o = AC.createOscillator(), o2 = AC.createOscillator(), g = AC.createGain(), t = AC.currentTime; len = len || 1.2;
   o.type = 'triangle'; o2.type = 'sine'; o.frequency.value = f; o2.frequency.value = f * 2.01;
   g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(v, t + .01); g.gain.exponentialRampToValueAtTime(.0005, t + len);
-  o.connect(g); o2.connect(g); g.connect(master); o.start(t); o2.start(t); o.stop(t + len + .05); o2.stop(t + len + .05);
+  o.connect(g); o2.connect(g); g.connect(bus || busSfx); o.start(t); o2.start(t); o.stop(t + len + .05); o2.stop(t + len + .05);
 }
 const sfx = {
   // хруст: щелчок волокон + «тело» укуса; плотная древесина звучит ниже и глуше
@@ -144,7 +148,7 @@ function ambientOn(on) {
     const src = AC.createBufferSource(); src.buffer = noiseBuf; src.loop = true;
     const f = AC.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 240;
     const g = AC.createGain(), t = AC.currentTime; g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(.07, t + 1.5);
-    src.connect(f); f.connect(g); g.connect(master); src.start(); amb = { src, g };
+    src.connect(f); f.connect(g); g.connect(busAmb); src.start(); amb = { src, g };
   } else if ((!on || !meta.sound) && amb) {
     const a = amb; amb = null; a.g.gain.linearRampToValueAtTime(0, AC.currentTime + .5); setTimeout(() => { try { a.src.stop(); } catch (e) {} }, 600);
   }
@@ -154,13 +158,13 @@ function creak() {
   o.type = 'sawtooth'; o.frequency.setValueAtTime(f0, t); o.frequency.linearRampToValueAtTime(f0 * (1.15 + Math.random() * .5), t + d);
   f.type = 'bandpass'; f.frequency.value = 450 + Math.random() * 500; f.Q.value = 9;
   g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(.045, t + d * .3); g.gain.linearRampToValueAtTime(0, t + d);
-  o.connect(f); f.connect(g); g.connect(master); o.start(t); o.stop(t + d + .05);
+  o.connect(f); f.connect(g); g.connect(busAmb); o.start(t); o.stop(t + d + .05);
 }
 function chirp() {
   const t0 = AC.currentTime, n = 2 + (Math.random() * 4 | 0), base = 2000 + Math.random() * 1800;
   for (let i = 0; i < n; i++) { const o = AC.createOscillator(), g = AC.createGain(), t = t0 + i * (.09 + Math.random() * .06);
     o.type = 'sine'; o.frequency.setValueAtTime(base, t); o.frequency.exponentialRampToValueAtTime(base * (1.2 + Math.random() * .4), t + .06);
-    g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(.022, t + .015); g.gain.exponentialRampToValueAtTime(.0008, t + .09); o.connect(g); g.connect(master); o.start(t); o.stop(t + .1); }
+    g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(.022, t + .015); g.gain.exponentialRampToValueAtTime(.0008, t + .09); o.connect(g); g.connect(busAmb); o.start(t); o.stop(t + .1); }
 }
 function ambientTick(dt) {
   if (!AC || !meta.sound) return; ambT -= dt; if (ambT > 0) return; ambT = 2.5 + Math.random() * 5;
@@ -171,8 +175,8 @@ const PENTA = [220, 261.6, 293.7, 329.6, 392, 440, 523.3, 587.3];
 let musStep = 0;
 function musicTick(dt) {
   if (!AC || !meta.sound) return; musT -= dt; if (musT > 0) return; musT = .45; musStep++;
-  if (musStep % 8 === 0) pluck(PENTA[(musStep / 8 | 0) % 2 ? 0 : 3] / 2, .05, 2.4);           // бас раз в такт
-  if (Math.random() < .7) pluck(PENTA[(Math.random() * PENTA.length) | 0], .035, 1.4);
+  if (musStep % 8 === 0) pluck(PENTA[(musStep / 8 | 0) % 2 ? 0 : 3] / 2, .05, 2.4, busMus);           // бас раз в такт
+  if (Math.random() < .7) pluck(PENTA[(Math.random() * PENTA.length) | 0], .035, 1.4, busMus);
 }
 
 // ===================== ДАННЫЕ =====================
@@ -301,11 +305,14 @@ const ACH = [
 
 // ===================== СОХРАНЕНИЕ =====================
 const SAVE = 'lyctus_v1';
-const defMeta = () => ({ coins: 30, silver: 0, signs: [0, 0, 0, 0, 0], parts: [0, 0, 0, 0, 0, 0], own: [true, false, false, false, false], sp: 0,
+const defSet = () => ({ lang: (navigator.language || 'ru').toLowerCase().startsWith('ru') ? 'ru' : 'en', vol: .8, mus: .6, sfx: .9, amb: .7, shake: true, quality: 'high', map: 0, hints: true });
+const defMeta = () => ({ set: defSet(), coins: 30, silver: 0, signs: [0, 0, 0, 0, 0], parts: [0, 0, 0, 0, 0, 0], own: [true, false, false, false, false], sp: 0,
   lv: [[1, 1, 1, 1, 1, 1], [1, 1, 1, 1, 1, 1], [1, 1, 1, 1, 1, 1], [1, 1, 1, 1, 1, 1], [1, 1, 1, 1, 1, 1]],
   energy: 9, eT: Date.now(), unlocked: 3, best: [], tasks: {}, login: { last: '', streak: 0 }, bonusDay: '', onl: { day: '', sec: 0, got: 0 }, tutDone: false, stats: { nocut: 0, dodges: 0, duels: 0, secrets: 0, nodmg: 0, five: 0 }, claimed: {}, sound: true });
 let meta = defMeta();
 try { const s = localStorage.getItem(SAVE); if (s) meta = Object.assign(defMeta(), JSON.parse(s)); } catch (e) {}
+meta.set = Object.assign(defSet(), meta.set || {});
+setQuality(meta.set.quality);
 const save = () => { try { localStorage.setItem(SAVE, JSON.stringify(meta)); } catch (e) {} };
 const ENERGY_MAX = 9, ENERGY_MIN = 20;
 function dailyGift() {
@@ -329,6 +336,117 @@ const GIFTS = [
   { n: '100 монет', f: () => { meta.coins += 100; } }, { n: '2 серебряных знака короеда', f: () => { meta.silver += 2; } },
 ];
 let gift = null;
+
+// ===================== ЯЗЫК (RU / EN) =====================
+// Весь текст на экран проходит через tr(): точное совпадение → фразы-фрагменты (длинные первыми) → правила для чисел.
+const EN = {
+  'Лапки': 'Legs', 'скорость передвижения по ходам': 'crawling speed in tunnels', 'Челюсти': 'Jaws', 'скорость прогрызания': 'gnawing speed',
+  'Усики': 'Antennae', 'урон в столкновениях': 'damage in fights', 'Голова': 'Head', 'замедление времени дерева (Q)': 'slows the tree timer (Q)',
+  'Спинка': 'Back', 'здоровье (вес)': 'health (weight)', 'Крылья': 'Wings', 'рывок по готовым ходам (Shift)': 'dash along tunnels (Shift)',
+  'Лубоед Малый': 'Lesser Bast Beetle', 'Стартовый. Без особенностей.': 'Starter beetle. No special traits.',
+  'Лубоед Сосновый': 'Pine Bast Beetle', 'Мягкую древесину и кору грызёт быстрее, плотную — хуже.': 'Gnaws soft wood and bark faster, dense wood slower.',
+  'Лубоед Еловый': 'Spruce Bast Beetle', 'Средняя древесина — его стихия, чуть крепче панцирь.': 'Medium wood is his element; a slightly tougher shell.',
+  'Короед-Типограф': 'Typographer Beetle', 'Плотные слои — как масло, но ползёт медленнее.': 'Cuts dense layers like butter, but crawls slower.',
+  'Заболотник Берёзовый': 'Birch Sapwood Beetle', 'Быстрый и живучий, грызёт неспешно.': 'Fast and tough, but gnaws slowly.',
+  'Ускорение': 'Speed boost', 'Время дерева замедлено': 'Tree time slowed', 'Урон ×2': 'Damage ×2', 'Здоровье ×2': 'Health ×2', 'Регенерация': 'Regeneration', 'Монеты ×2': 'Coins ×2',
+  'слабый': 'weak', 'средний': 'medium', 'сильный': 'strong', 'неуязвимый': 'invulnerable', 'нахлебник': 'freeloader', 'друг': 'friend',
+  'Ход': 'Tunnel', 'Внешний слой': 'Outer layer', 'Внутренний слой': 'Inner layer', 'Средний слой': 'Middle layer', 'Корни': 'Roots', 'Ствол': 'Trunk', 'Ветви': 'Branches',
+  'Трухлявая Сосна': 'Rotten Pine', 'Россия, средняя полоса': 'Russia, central belt', 'Старая подгнившая сосна: мягкая древесина, мало врагов. Учись ползать, грызть и собирать личинок.': 'An old rotting pine: soft wood, few enemies. Learn to crawl, gnaw and rescue larvae.',
+  'Вход в гнилой корень': 'Rotten root entrance', 'Переплетение корней': 'Root tangle', 'Сердцевина сосны': 'Pine heartwood', 'Первая ветка': 'First branch', 'Гнилая ветвь': 'Rotten branch',
+  'Ель Обыкновенная': 'Norway Spruce', 'Россия, Сибирь': 'Russia, Siberia', 'Здоровая крепкая ель. Плотная древесина и смоляные карманы, два слоя ствола, неуязвимый патруль.': 'A healthy, strong spruce. Dense wood and resin pockets, a two-layer trunk, an invulnerable patrol.',
+  'Тонкий корень — лёгкий, но длинный': 'Thin root — easy but long', 'Средний корень — оптимальный': 'Middle root — balanced', 'Плотный корень — с няшкой ⏳': 'Dense root — with a ⏳ bonus',
+  'Еловый корень': 'Spruce root', 'Глубокие корни': 'Deep roots', 'Нижний ствол ели': 'Lower spruce trunk', 'Верхний ствол ели': 'Upper spruce trunk', 'Нижняя ветвь ели': 'Lower spruce branch', 'Секретная верхняя ветвь': 'Secret top branch',
+  'Сибирский Кедр': 'Siberian Cedar', 'Россия, Западная Сибирь': 'Russia, Western Siberia', 'Могучее старое дерево: камень, три слоя ствола, нахлебники, сильные враги и жёсткий таймер срубки.': 'A mighty old tree: stone, a three-layer trunk, freeloaders, strong enemies and a harsh felling timer.',
+  'Толстый корень': 'Thick root', 'Тонкий корень': 'Thin root', 'Корень у камня': 'Root by the stone', 'Обломанный корень': 'Broken root',
+  'Старый корень кедра': 'Old cedar root', 'Западное корневище': 'Western rootstock', 'Восточное корневище': 'Eastern rootstock', 'Нижний ствол кедра': 'Lower cedar trunk', 'Верхний ствол кедра': 'Upper cedar trunk',
+  'Нижняя ветвь кедра': 'Lower cedar branch', 'Средняя ветвь кедра': 'Middle cedar branch', 'Верхушка кедра': 'Cedar crown', 'Заповедная ветвь': 'Sanctuary branch',
+  'Сосна крымская': 'Crimean Pine', 'Европа, Крым': 'Europe, Crimea', 'Кедр корейский': 'Korean Pine', 'Азия, Корея': 'Asia, Korea', 'Ель сибирская': 'Siberian Spruce', 'Пихта кавказская': 'Caucasian Fir', 'Россия, Кавказ': 'Russia, Caucasus',
+  'Лиственница даурская': 'Dahurian Larch', 'Азия, Даурия': 'Asia, Dauria', 'Тис ягодный': 'English Yew', 'Европа': 'Europe', 'Можжевельник казацкий': 'Savin Juniper', 'Азия, Тянь-Шань': 'Asia, Tian Shan', 'Туя западная': 'Eastern Arborvitae', 'Северная Америка': 'North America',
+  'Сосна веймутова': 'Eastern White Pine', 'Ель колючая': 'Blue Spruce', 'Северная Америка, Скалистые горы': 'North America, Rocky Mountains', 'Пихта белая': 'Silver Fir', 'Европа, Альпы': 'Europe, Alps', 'Кипарис': 'Cypress', 'Европа, Средиземноморье': 'Europe, Mediterranean',
+  'Секвойя': 'Sequoia', 'Северная Америка, Калифорния': 'North America, California', 'Каури': 'Kauri', 'Австралия и Океания': 'Australia and Oceania', 'Араукария': 'Araucaria', 'Южная Америка': 'South America', 'Сосна горная': 'Mountain Pine', 'Европа, Карпаты': 'Europe, Carpathians',
+  'Ель аянская': 'Yezo Spruce', 'Россия, Дальний Восток': 'Russia, Far East', 'Пихта сибирская': 'Siberian Fir', 'Россия, Алтай': 'Russia, Altai', 'Лиственница сибирская': 'Siberian Larch', 'Можжевельник туркменский': 'Turkmen Juniper', 'Азия, Копетдаг': 'Asia, Kopet Dag',
+  'Кедр европейский': 'Swiss Pine', 'Ель восточная': 'Oriental Spruce', 'Азия, Кавказ': 'Asia, Caucasus', 'Тис дальневосточный': 'Japanese Yew', 'Азия, Япония': 'Asia, Japan', 'Метасеквойя': 'Dawn Redwood', 'Азия, Китай': 'Asia, China',
+  'Клён': 'Maple', 'Бук': 'Beech', 'Ясень': 'Ash', 'Эвкалипт': 'Eucalyptus', 'Австралия': 'Australia', 'Берёза': 'Birch', 'Россия': 'Russia', 'Пихта цельнолистная': 'Manchurian Fir', 'Азия, Маньчжурия': 'Asia, Manchuria',
+  'Корень': 'Root', 'Глубокий корень': 'Deep root', 'Нижний ствол': 'Lower trunk', 'Верхний ствол': 'Upper trunk', 'Ветвь': 'Branch', 'Тайная ветвь': 'Hidden branch',
+  ' слоя ствола': '-layer trunk', 'один слой ствола': 'single-layer trunk', 'камень': 'stone', 'смоляные карманы': 'resin pockets', 'неуязвимые патрули': 'invulnerable patrols', 'патрули': 'patrols', 'нахлебники': 'freeloaders',
+  'Дерево №': 'Tree #', '. Дятел злее, древесина плотнее.': '. Angrier woodpecker, denser wood.', 'Левый корень': 'Left root', 'Средний корень': 'Middle root', 'Правый корень': 'Right root',
+  'Бонусное дерево дня': 'Bonus tree of the day', 'Сегодня: знаки «': 'Today: «', 'Раз в день. Мягкая трухлявая древесина, много монет и три сундука со знаками части тела дня. Вход — 2 энергии.': 'Once a day. Soft rotten wood, lots of coins and three chests with signs of today\'s body part. Entry costs 2 energy.',
+  'Кладовая': 'Pantry',
+  'Дерево не срублено': 'Tree not felled', 'Пройти дерево, не вызвав срубку': 'Finish a tree before it is felled', 'Ускользнуть от дятла': 'Dodge the woodpecker', 'Уйти из зоны дятла до удара': 'Leave the woodpecker zone before it strikes',
+  'Победить короеда': 'Defeat a beetle', 'Выиграть столкновение с врагом': 'Win a fight against an enemy', 'Секретный знак': 'Secret sign', 'Найти секретный знак короеда на уровне': 'Find a secret beetle sign in a level',
+  'Без единой царапины': 'Not a scratch', 'Пройти дерево, не получив повреждений': 'Finish a tree without taking damage', 'Все пять личинок': 'All five larvae', 'Спасти всех личинок дерева': 'Rescue every larva in a tree',
+  '30 монет': '30 coins', 'знак части тела': 'a body-part sign', '60 монет': '60 coins', '+3 энергии': '+3 energy', '2 знака частей тела': '2 body-part signs', '100 монет': '100 coins', '2 серебряных знака короеда': '2 silver beetle signs',
+  'Ускорение по ходам +20%': 'Tunnel speed +20%', '+60 с ко времени дерева': '+60 s tree time', 'Панцирь: +30% здоровья': 'Shell: +30% health',
+  'сразу': 'instantly', 'Полная энергия': 'Full energy', 'до 9 из 9': 'up to 9 of 9', 'Знак части тела': 'Body-part sign', 'случайная часть': 'random part', 'Получен знак «': 'Got sign «',
+  'Набор: 3 знака частей тела': 'Bundle: 3 body-part signs', 'случайные части': 'random parts', 'Получены знаки: ': 'Got signs: ', 'Серебряный знак короеда': 'Silver beetle sign', 'подходит для открытия любого короеда': 'unlocks any beetle',
+  'Коснись экрана и веди пальцем — короед ползёт за ним': 'Touch the screen and drag — the beetle follows your finger', 'Ползи: стрелки или WASD': 'Crawl: arrow keys or WASD',
+  'Упрись в древесину — короед прогрызает свой ход': 'Push into the wood — the beetle gnaws its own tunnel', 'Найди личинку ☆ — иди по голубой стрелке': 'Find a larva ☆ — follow the blue arrow',
+  'Монеты и сундуки — бери всё, что встретишь': 'Coins and chests — grab everything you find', 'Чёрный лаз с кольцами — переход в следующий подуровень. Заползи в него': 'The black hole with rings leads to the next sublevel. Crawl into it',
+  'Голубой короед с ♥ — друг. Подожди немного: он прогрызёт ход к тайнику с монетами': 'The blue beetle with ♥ is a friend. Wait a bit: he will gnaw a path to a coin stash',
+  'Собери личинок в корнях и иди дальше — в ствол': 'Collect the larvae in the roots and move on — into the trunk',
+  'Зелёный круг у врага — ты сильнее: подползи вплотную и победи. Красный — беги!': 'Green ring — you are stronger: crawl right up and win. Red ring — run!',
+  'Кнопка «Рывок» — короткое ускорение по ходам': 'The «Dash» button gives a short burst of speed', 'Shift — рывок: короткое ускорение по ходам': 'Shift — dash: a short burst of speed',
+  'Дальше ветки. Жёлтые зоны у коры — там охотится дятел: не задерживайся!': 'Branches ahead. Yellow zones near the bark are woodpecker hunting grounds: don\'t linger!',
+  'Собери ': 'Collect ', ' личинки и лети в ВЫЛЕТ — солнечный свет в коре': ' larvae and fly to the EXIT — the sunlight in the bark',
+  'Не хватает монет на плюшки': 'Not enough coins for the perks', 'Бонус за время в игре: знак «': 'Playtime bonus: sign «', 'Дерево срубили — время вышло!': 'The tree was felled — time is up!',
+  'Переход: ': 'Moved to: ', 'Ты вылетел из дерева!': 'You flew out of the tree!', 'Нужно минимум ': 'You need at least ', ' личинки. Собрано: ': ' larvae. Collected: ', '. Ищи остальных!': '. Find the rest!',
+  'Дружественный короед прогрыз ход к тайнику!': 'The friendly beetle gnawed a path to the stash!',
+  'Дерево — сплошная древесина. Веди пальцем: куда тянешь — туда ползёт и грызёт.': 'The tree is solid wood. Drag your finger: the beetle crawls and gnaws that way.',
+  'Дерево — сплошная древесина. Стрелки/WASD: ползи, упёрся — грызёшь свой ход.': 'The tree is solid wood. Arrows/WASD: crawl; push into wood to gnaw your own tunnel.',
+  'Старые ходы — готовые дороги между гнёздами. Остальное прогрызай сам.': 'Old tunnels are ready-made roads between nests. Gnaw the rest yourself.',
+  'Собери личинок ☆ (нужно ': 'Collect larvae ☆ (need ', ') и найди ВЫЛЕТ. Личинку чуешь стрелкой.': ') and find the EXIT. An arrow points to nearby larvae.',
+  'Зелёный круг у врага — победишь, красный — беги! ': 'Green ring — you win, red ring — run! ', 'Кнопки справа: рывок и время.': 'Buttons on the right: dash and time.', 'Shift — рывок, Q — время.': 'Shift — dash, Q — time.',
+  'Короед погиб.': 'The beetle died.', 'Личинка спасена! ': 'Larva rescued! ', '☆ личинка': '☆ larva', ' — 10 секунд': ' — 10 seconds', 'Секретный знак: ': 'Secret sign: ',
+  'Сундук: знак короеда и ': 'Chest: a beetle sign and ', ' монет!': ' coins!', 'Сундук: 2 знака короеда и ': 'Chest: 2 beetle signs and ', 'Сундук: 2 знака «': 'Chest: 2 «', '» и ': '» signs and ', ' монет': ' coins',
+  'Двойной сундук: ': 'Double chest: ', 'Сундук: знак «': 'Chest: sign «', 'Сундук: ': 'Chest: ', 'Сундук: знак короеда!': 'Chest: a beetle sign!',
+  'Дятел! Покинь зону у коры!': 'Woodpecker! Leave the zone near the bark!', 'Ускользнул от дятла!': 'Dodged the woodpecker!', 'Дятел клюнул! −': 'The woodpecker struck! −', '% здоровья': '% health',
+  'Доп. задание «спасти всех 5 личинок»: +40 монет, +1 серебряный знак': 'Bonus task «rescue all 5 larvae»: +40 coins, +1 silver sign', 'Доп. задание «найти секретный знак»: +30 монет': 'Bonus task «find the secret sign»: +30 coins',
+  ' серебр. знак': ' silver sign', ' золотой знак': ' gold sign', 'ВЫЛЕТ': 'EXIT', 'ВЫЛЕТ (нужно ': 'EXIT (need ', 'ТУК!': 'KNOCK!', 'Здоровье ': 'Health ', 'Дерево ': 'Tree ',
+  '☆ Личинки: ': '☆ Larvae: ', ' (нужно ': ' (need ', 'Жёлтые зоны — опасны (дятел)': 'Yellow zones are dangerous (woodpecker)', 'Карта: ': 'Map: ', 'Нажми — скрыть': 'Tap to hide', 'Нажми — крупнее': 'Tap to enlarge',
+  'Tab — скрыть карту': 'Tab — hide map', 'Tab — карта': 'Tab — map', 'Карта': 'Map', 'Рывок': 'Dash', 'Время': 'Time', 'Коснись и веди пальцем': 'Touch and drag',
+  'ОБУЧЕНИЕ · шаг ': 'TUTORIAL · step ', ' из ': ' of ', 'Пропустить': 'Skip', 'Время дерева замедлено!': 'Tree time slowed!', ' (восстановление: +1 через ': ' (refill: +1 in ',
+  'Энергия: ': 'Energy: ', '   ·   Монеты: ': '   ·   Coins: ', '   ·   Серебр. знаки: ': '   ·   Silver signs: ', 'KORoED — жизнь короеда': 'KORoED — the life of a bark beetle',
+  'Жили-были короеды. Жили они в мире и покое, и спокойно себе грызли такие же мирные деревья. Но человеку не понравилось, что его стройматериалы едят какие-то там короеды, а птицам — что вкусная еда прячется так глубоко. И началась великая борьба за выживание, которая получила название — естественный отбор.': 'Once upon a time there lived bark beetles. They lived in peace and quietly gnawed equally peaceful trees. But people did not like beetles eating their building timber, and birds did not like their tasty food hiding so deep. And so began the great struggle for survival known as natural selection.',
+  'Спасай личинок, прогрызай лабиринты корней, ствола и ветвей, и вылетай из дерева — пока его не срубили.': 'Rescue the larvae, gnaw through roots, trunk and branches, and fly out of the tree before it is felled.',
+  'Играть': 'Play', 'Короеды и прокачка': 'Beetles & upgrades', 'Достижения': 'Achievements', 'Магазин': 'Shop', '⛶ На весь экран': '⛶ Fullscreen', 'Звук: ': 'Sound: ', 'вкл': 'on', 'выкл': 'off', ' (M) · Shift+N — стереть прогресс': ' (M)',
+  'Ежедневный подарок': 'Daily gift', 'Заходи каждый день — подарки растут': 'Come back every day — the gifts get better', 'День ': 'Day ', 'Сегодня, день ': 'Today, day ', 'Забрать': 'Claim',
+  'Покупка за реальные деньги (донат) не подключена: в документе она ещё не проработана.': 'Real-money purchases are not connected yet: the design document has not worked them out.',
+  'Назад': 'Back', 'Выбери дерево': 'Choose a tree', 'Время: ': 'Time: ', ' · Рекорд: ': ' · Best: ', ' все 5 личинок   ': ' all 5 larvae   ', ' секретный знак': ' secret sign', 'Закрыто': 'Locked', 'Выбрать': 'Select',
+  'Деревья ': 'Trees ', ' · открыто: ': ' · unlocked: ', 'Бонусное дерево — завтра': 'Bonus tree — tomorrow', '★ Бонусное дерево дня': '★ Bonus tree of the day', 'Короед: ': 'Beetle: ', ' · Урон ': ' · Damage ', ' · Скорость ×': ' · Speed ×',
+  'Вход в дерево': 'Entrance', 'Вход ': 'Entrance ', 'Вход: ': 'Entrance: ', 'Доп. задания (награда за первое выполнение):': 'Bonus tasks (reward for the first completion):',
+  ' Спасти всех 5 личинок — 40 монет и серебряный знак     ': ' Rescue all 5 larvae — 40 coins and a silver sign     ', ' Найти секретный знак — 30 монет': ' Find the secret sign — 30 coins', 'Плюшки на этот забег (по желанию):': 'Perks for this run (optional):',
+  'В дерево! (−': 'Into the tree! (−', ' энергии': ' energy', 'Не хватает энергии или монет': 'Not enough energy or coins', 'Энергия закончилась — подожди восстановления или загляни в магазин': 'Out of energy — wait for it to refill or visit the shop',
+  'Прокачка': 'Upgrades', 'Монеты: ': 'Coins: ', ' · Серебряные знаки (подходят любому короеду): ': ' · Silver signs (fit any beetle): ', '● выбран': '● selected', 'открыт': 'unlocked', 'нужно знаков: ': 'signs needed: ', ' (есть ': ' (have ',
+  'Знаки этого короеда: ': 'Signs of this beetle: ', 'Открыть (': 'Unlock (', ' знаков)': ' signs)', 'Хватает знаков': 'Enough signs', 'Знаки короедов лежат в секретах и сундуках деревьев': 'Beetle signs are hidden in secrets and chests',
+  '● Выбран': '● Selected', 'Части тела: нужны знаки части + монеты': 'Body parts: need part signs + coins', '  ур.': '  lv.', ' (макс.)': ' (max)', 'знаков: ': 'signs: ', 'Макс.': 'Max', 'Улучшить: ': 'Upgrade: ', ' зн. + ': ' signs + ',
+  'Награда — серебряные и золотые знаки короеда (золотой = 10 серебряных)': 'Rewards are silver and gold beetle signs (gold = 10 silver)', 'Выполнено ✓': 'Completed ✓', ' (награда: ': ' (reward: ', ' серебр.': ' silver', ' золот.': ' gold',
+  'Дерево пройдено!': 'Tree cleared!', 'Дерево не пройдено': 'Tree failed', 'Личинок спасено': 'Larvae rescued', 'Монет собрано': 'Coins collected', 'Врагов побеждено': 'Enemies defeated', 'Ускользнул от дятла': 'Dodged the woodpecker', ' раз': ' times',
+  'Секретных знаков': 'Secret signs', 'Остаток времени': 'Time left', 'Очки: ': 'Score: ', 'Награда: +': 'Reward: +', ' (половина за проигрыш)': ' (half for a loss)', 'Найдено знаков: ': 'Signs found: ', 'Достижение: ': 'Achievement: ',
+  'В меню деревьев': 'To the tree menu', 'Вылет!': 'Fly out!', 'Короед улетает искать новое дерево': 'The beetle flies off to find a new tree', 'ПАУЗА': 'PAUSE', 'Продолжить': 'Resume', 'Покинуть дерево (проигрыш)': 'Leave the tree (lose)', 'Ты покинул дерево.': 'You left the tree.',
+  // настройки
+  'Настройки': 'Settings', 'Звук': 'Sound', 'Общая громкость': 'Master volume', 'Музыка': 'Music', 'Эффекты': 'Effects', 'Фон (лес, дерево)': 'Ambience (forest, tree)', 'Игра': 'Game',
+  'Язык': 'Language', 'Графика': 'Graphics', 'Качество': 'Quality', 'Быстро': 'Fast', 'Тряска экрана': 'Screen shake', 'Мини-карта': 'Minimap', 'В углу': 'In corner', 'Скрыта': 'Hidden',
+  'Стрелки-подсказки': 'Hint arrows', 'Обучение': 'Tutorial', 'Пройти заново': 'Replay', 'Включено': 'On', 'Выключено': 'Off', 'Сбросить прогресс': 'Reset progress', 'Точно сбросить? Нажми ещё раз': 'Sure? Click again to reset',
+  'Прогресс сброшен': 'Progress reset', 'Обучение включено для дерева №1': 'Tutorial enabled for tree #1', 'Управление': 'Controls',
+  'Клавиатура: стрелки/WASD — ползти и грызть · Shift — рывок · Q — время · Tab — карта · P/Esc — пауза · M — звук': 'Keyboard: arrows/WASD — crawl & gnaw · Shift — dash · Q — time · Tab — map · P/Esc — pause · M — sound',
+  'Телефон: коснись и веди пальцем — джойстик; справа кнопки «Рывок» и «Время»; сверху пауза; карта — нажатием': 'Phone: touch and drag — joystick; dash and time buttons on the right; pause at the top; tap the map',
+  'Полный экран': 'Fullscreen', 'Выйти из полного экрана': 'Exit fullscreen', 'Полный экран, лучше горизонтально': 'Fullscreen, landscape is best',
+};
+const EN_RULES = [[/(\d+) с$/, '$1 s'], [/(\d+) с\)/, '$1 s)']];
+const EN_KEYS = Object.keys(EN).filter(k => !['Ход', 'Бук', 'вкл', 'выкл', 'Звук', 'Игра', 'Язык', 'друг', 'Время', 'Карта', 'Рывок'].includes(k)).sort((a, b) => b.length - a.length);
+const L_CACHE = new Map(), CYR = /[А-Яа-яЁё]/;
+function tr(s) {
+  if (typeof s !== 'string' || meta.set.lang !== 'en' || !CYR.test(s)) return s;
+  let r = L_CACHE.get(s); if (r !== undefined) return r;
+  r = EN[s];
+  if (r === undefined) {
+    r = s;
+    for (const k of EN_KEYS) if (r.includes(k)) r = r.split(k).join(EN[k]);
+    r = r.replace(/(^|[^А-Яа-яЁё])вкл($|[^А-Яа-яЁё])/g, '$1on$2').replace(/(^|[^А-Яа-яЁё])выкл($|[^А-Яа-яЁё])/g, '$1off$2');
+    for (const [re, to] of EN_RULES) r = r.replace(re, to);
+  }
+  if (L_CACHE.size > 4000) L_CACHE.clear(); L_CACHE.set(s, r); return r;
+}
 
 // ===================== ГЕНЕРАЦИЯ ПОДУРОВНЕЙ =====================
 const P = 7, B = 3;           // шаг клетки лабиринта, толщина коры
@@ -484,7 +602,7 @@ function genSub(tree, id, seed) {
 }
 
 // ===================== СОСТОЯНИЕ ИГРЫ =====================
-let shopBack = 'title', state = 'title', time = 0, selTree = 0, selEnt = 0, selSp = 0, treePage = 0, selBoost = {};
+let settingsBack = 'title', resetAsk = -99, shopBack = 'title', state = 'title', time = 0, selTree = 0, selEnt = 0, selSp = 0, treePage = 0, selBoost = {};
 const BOOSTS = [{ k: 'spd', n: 'Ускорение по ходам +20%', c: 25 }, { k: 'time', n: '+60 с ко времени дерева', c: 30 }, { k: 'hp', n: 'Панцирь: +30% здоровья', c: 30 }];
 const boostCost = () => BOOSTS.reduce((a, b) => a + (selBoost[b.k] ? b.c : 0), 0);
 const SHOP = [
@@ -516,7 +634,7 @@ function tutTick(dt) {
   const g = G; if (!g.tut) return; const st = TUTS[g.tut.i]; g.tut.t += dt;
   if (st.done(g) && g.tut.i < TUTS.length - 1) { g.tut.i++; g.tut.t = 0; sfx.coin(); }
 }
-function say(t, d) { toasts.push({ t, life: d || 3 }); if (toasts.length > 3) toasts.shift(); }
+function say(t, d) { toasts.push({ t: tr(t), life: d || 3 }); if (toasts.length > 3) toasts.shift(); }
 
 function startRun(ti, entIdx) {
   tickEnergy();
@@ -535,7 +653,7 @@ function startRun(ti, entIdx) {
   G.tut = ti === 0 && !meta.tutDone ? { i: 0, t: 0, x0: 0, y0: 0 } : null;
   enterSub(tree.start, entIdx || 0, true);
   if (G.tut) { G.tut.x0 = G.p.x; G.tut.y0 = G.p.y; }
-  parts = []; pops = []; toasts = []; flash = 0; shake = 0; state = 'play';
+  parts = []; pops = []; toasts = []; flash = 0; shake = 0; mapMode = meta.set.map; state = 'play';
   return true;
 }
 
@@ -999,7 +1117,7 @@ function drawItem(it) {
 }
 
 function drawWorld() {
-  const sub = G.sub, p = G.p, sh = shake * 4;
+  const sub = G.sub, p = G.p, sh = meta.set.shake ? shake * 4 : 0;
   ctx.save(); if (sh) ctx.translate((Math.random() - .5) * sh, (Math.random() - .5) * sh);
   renderView();
   ctx.save(); ctx.translate(-camX * S, -camY * S);
@@ -1023,14 +1141,14 @@ function drawWorld() {
   for (const e of sub.enemies) if (e.layer === G.layer && !e.dead) drawEnemy(e);
   if (p.digTile >= 0) { const cx = p.digTile % sub.W, cy = (p.digTile / sub.W) | 0; ctx.strokeStyle = 'rgba(255,240,180,.9)'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc((cx + .5) * S, (cy + .5) * S, S * 1.1 + Math.sin(time * 30), 0, 7); ctx.stroke(); }
   for (const it of sub.items) {
-    if (it.k !== 'larva' || it.layer !== G.layer) continue;
+    if (!meta.set.hints || it.k !== 'larva' || it.layer !== G.layer) continue;
     const dd = Math.hypot(it.x - p.x, it.y - p.y); if (dd > 26 || dd < 5) continue;
     const a = Math.atan2(it.y - p.y, it.x - p.x), r0 = 4.2 * S, al = clamp(1.2 - dd / 26, .25, 1);
     ctx.save(); ctx.translate(p.x * S + Math.cos(a) * r0, p.y * S + Math.sin(a) * r0); ctx.rotate(a); ctx.globalAlpha = al * (.7 + .3 * Math.sin(time * 6));
     ctx.fillStyle = '#fff0a0'; ctx.strokeStyle = '#6a5a20'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(10, 0); ctx.lineTo(-6, -7); ctx.lineTo(-6, 7); ctx.closePath(); ctx.fill(); ctx.stroke(); ctx.restore();
   }
   ctx.globalAlpha = 1;
-  if (G.tut && TUTS[G.tut.i].aim) { // голубая стрелка обучения — к цели шага
+  if (G.tut && meta.set.hints && TUTS[G.tut.i].aim) { // голубая стрелка обучения — к цели шага
     const tg = TUTS[G.tut.i].aim(G);
     if (tg && Math.hypot(tg.x - p.x, tg.y - p.y) > 3) {
       const a = Math.atan2(tg.y - p.y, tg.x - p.x), r0 = 5.5 * S + Math.sin(time * 6) * 4;
@@ -1125,7 +1243,7 @@ function drawHUD() {
     ctx.beginPath(); ctx.arc(cx, cy, R - 1.5, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * (ready ? 1 : 1 - cd / max)); ctx.stroke();
     ctx.globalAlpha = ready ? 1 : .45; icon(cx, cy); ctx.globalAlpha = 1;
     if (!ready) txt(String(Math.ceil(cd)), cx, cy + 6, 17, '#fff', 'center', true);
-    ctx.font = 'bold 11px ' + FONT; const kw = ctx.measureText(key).width + 12;
+    key = tr(key); ctx.font = 'bold 11px ' + FONT; const kw = ctx.measureText(key).width + 12;
     rrect(cx - kw / 2, cy + R - 6, kw, 16, 8); ctx.fillStyle = '#20190c'; ctx.fill(); ctx.strokeStyle = '#8a7440'; ctx.lineWidth = 1; ctx.stroke();
     ctx.fillStyle = '#efe6c4'; ctx.textAlign = 'center'; ctx.fillText(key, cx, cy + R + 6);
     btns.push({ x: cx - R, y: cy - R, w: R * 2, h: R * 2, fn: () => skill(which) });
@@ -1151,7 +1269,7 @@ function drawHUD() {
   }
   ctx.textAlign = 'center'; ctx.font = '17px ' + FONT;
   if (G.tut) {
-    const st = TUTS[G.tut.i], line = st.t(); ctx.font = 'bold 16px ' + FONT; const w = Math.min(560, ctx.measureText(line).width + 60), x = 480 - w / 2, y = 572, pulse = G.tut.t < .6 ? 1 - G.tut.t / .6 : 0;
+    const st = TUTS[G.tut.i], line = tr(st.t()); ctx.font = 'bold 16px ' + FONT; const w = Math.min(560, ctx.measureText(line).width + 60), x = 480 - w / 2, y = 572, pulse = G.tut.t < .6 ? 1 - G.tut.t / .6 : 0;
     ctx.save(); ctx.shadowColor = 'rgba(120,200,255,' + (.4 + pulse * .6) + ')'; ctx.shadowBlur = 14 + pulse * 20; rrect(x, y, w, 58, 14); ctx.fillStyle = 'rgba(8,20,28,.86)'; ctx.fill(); ctx.restore();
     rrect(x, y, w, 58, 14); ctx.strokeStyle = '#6ac0f0'; ctx.lineWidth = 1.5; ctx.stroke();
     txt('ОБУЧЕНИЕ · шаг ' + (G.tut.i + 1) + ' из ' + TUTS.length, x + 14, y + 20, 12, '#8fd0ff', 'left', true);
@@ -1186,6 +1304,7 @@ function drawTitle() {
   btn('Короеды и прокачка', 330, 418, 300, 46, () => { state = 'beetles'; selSp = meta.sp; }, { size: 18 });
   btn('Достижения', 330, 474, 300, 46, () => { state = 'ach'; }, { size: 18 });
   btn('Магазин', 660, 418, 200, 46, () => { shopBack = state; state = 'shop'; }, { size: 16 });
+  btn('Настройки', 100, 418, 200, 46, () => { settingsBack = 'title'; state = 'settings'; }, { size: 16 });
   if (document.fullscreenEnabled && !document.fullscreenElement) btn('⛶ На весь экран', 660, 474, 200, 46, () => { document.documentElement.requestFullscreen().catch(() => {}); try { screen.orientation.lock('landscape').catch(() => {}); } catch (er) {} }, { size: 14 });
   energyLine(560);
   txt('Звук: ' + (meta.sound ? 'вкл' : 'выкл') + ' (M) · Shift+N — стереть прогресс', 480, 596, 13, '#8a8468');
@@ -1196,6 +1315,49 @@ function drawTitle() {
       txt('День ' + d, x + 32, 276, 13, '#fff', 'center', true); txt(past ? '✓' : d === 7 ? '★' : '$', x + 32, 302, 18, past ? '#b8e070' : '#ffd860', 'center', true); }
     txt('Сегодня, день ' + gift.day + ': ' + gift.n, 480, 360, 20, '#ffffff', 'center', true);
     btn('Забрать', 380, 400, 200, 52, () => { gift = null; }, { key: 'Enter', size: 20 });
+  }
+}
+function slider(label, x, y, w, key) {
+  txt(label, x, y + 6, 15, '#efe6c4', 'left');
+  const tx = x + 170, tw = w - 230, v = meta.set[key];
+  rrect(tx, y - 4, tw, 10, 5); ctx.fillStyle = 'rgba(0,0,0,.6)'; ctx.fill();
+  rrect(tx, y - 4, tw * v, 10, 5); ctx.fillStyle = '#c8a040'; ctx.fill();
+  ctx.fillStyle = '#ffe9a8'; ctx.beginPath(); ctx.arc(tx + tw * v, y + 1, 10, 0, 7); ctx.fill(); ctx.strokeStyle = '#6a5020'; ctx.lineWidth = 2; ctx.stroke();
+  txt(Math.round(v * 100) + '%', x + w - 4, y + 6, 14, '#cfc7a4', 'right');
+  btns.push({ x: tx - 12, y: y - 16, w: tw + 24, h: 34, drag: true, fn: pt => { meta.set[key] = clamp((pt.x - tx) / tw, 0, 1); applyVolumes(); } });
+}
+function choice(label, x, y, w, opts, cur, fn) {
+  txt(label, x, y + 6, 15, '#efe6c4', 'left');
+  const bw = (w - 170) / opts.length;
+  opts.forEach((o, i) => btn(o[1], x + 170 + i * bw, y - 15, bw - 6, 34, () => { fn(o[0]); save(); }, { sel: cur === o[0], size: 13 }));
+}
+function drawSettings() {
+  if (settingsBack === 'pause' && G && G.sub) { renderView(); ctx.fillStyle = 'rgba(0,0,0,.6)'; ctx.fillRect(0, 0, 960, 640); } else bg();
+  panel(30, 16, 900, 608, .9);
+  txt('Настройки', 480, 60, 32, '#ffd98a', 'center', true);
+  // звук
+  txt('Звук', 60, 104, 18, '#ffd98a', 'left', true);
+  choice('Звук', 60, 140, 420, [[true, 'Включено'], [false, 'Выключено']], meta.sound, v => { meta.sound = v; applyVolumes(); });
+  slider('Общая громкость', 60, 190, 420, 'vol'); slider('Музыка', 60, 236, 420, 'mus'); slider('Эффекты', 60, 282, 420, 'sfx'); slider('Фон (лес, дерево)', 60, 328, 420, 'amb');
+  // игра
+  txt('Игра', 500, 104, 18, '#ffd98a', 'left', true);
+  choice('Язык', 500, 140, 410, [['ru', 'Русский'], ['en', 'English']], meta.set.lang, v => { meta.set.lang = v; L_CACHE.clear(); });
+  choice('Графика', 500, 186, 410, [['high', 'Качество'], ['low', 'Быстро']], meta.set.quality, v => { meta.set.quality = v; setQuality(v); });
+  choice('Тряска экрана', 500, 232, 410, [[true, 'Включено'], [false, 'Выключено']], meta.set.shake, v => { meta.set.shake = v; });
+  choice('Мини-карта', 500, 278, 410, [[0, 'В углу'], [2, 'Скрыта']], meta.set.map, v => { meta.set.map = v; mapMode = v; });
+  choice('Стрелки-подсказки', 500, 324, 410, [[true, 'Включено'], [false, 'Выключено']], meta.set.hints, v => { meta.set.hints = v; });
+  txt('Обучение', 500, 376, 15, '#efe6c4', 'left'); btn('Пройти заново', 670, 356, 234, 34, () => { meta.tutDone = false; save(); say('Обучение включено для дерева №1', 2.5); }, { size: 13 });
+  // управление
+  rrect(60, 412, 840, 70, 10); ctx.fillStyle = 'rgba(40,36,20,.7)'; ctx.fill();
+  txt('Управление', 76, 434, 15, '#ffd98a', 'left', true);
+  wrap('Клавиатура: стрелки/WASD — ползти и грызть · Shift — рывок · Q — время · Tab — карта · P/Esc — пауза · M — звук', 76, 456, 810, 13, '#d8d0b0', 'left', 17);
+  wrap('Телефон: коснись и веди пальцем — джойстик; справа кнопки «Рывок» и «Время»; сверху пауза; карта — нажатием', 76, 474, 810, 13, '#d8d0b0', 'left', 17);
+  // низ
+  btn('Назад', 60, 562, 160, 44, () => { state = settingsBack; save(); }, { key: 'Escape' });
+  if (document.fullscreenEnabled) btn(document.fullscreenElement ? 'Выйти из полного экрана' : 'Полный экран', 250, 562, 250, 44, () => { if (document.fullscreenElement) document.exitFullscreen().catch(() => {}); else { document.documentElement.requestFullscreen().catch(() => {}); try { screen.orientation.lock('landscape').catch(() => {}); } catch (er) {} } }, { size: 15 });
+  if (settingsBack !== 'pause') {
+    const ask = time - resetAsk < 3;
+    btn(ask ? 'Точно сбросить? Нажми ещё раз' : 'Сбросить прогресс', 620, 562, 290, 44, () => { if (time - resetAsk < 3) { const st = meta.set, snd = meta.sound; meta = defMeta(); meta.set = st; meta.sound = snd; save(); resetAsk = -99; say('Прогресс сброшен', 2.5); } else resetAsk = time; }, { size: 14 });
   }
 }
 function drawShop() {
@@ -1341,6 +1503,7 @@ function drawPause() {
   renderPreview(); ctx.fillStyle = 'rgba(0,0,0,.65)'; ctx.fillRect(0, 0, 960, 640);
   txt('ПАУЗА', 480, 220, 54, '#ffe9a8', 'center', true);
   btn('Продолжить', 330, 260, 300, 54, () => { state = 'play'; }, { key: 'Enter', size: 22 });
+  btn('Настройки', 330, 392, 300, 46, () => { settingsBack = 'pause'; state = 'settings'; }, { size: 16 });
   btn('Покинуть дерево (проигрыш)', 330, 330, 300, 46, () => { state = 'play'; finish(false, 'Ты покинул дерево.'); }, { size: 16 });
 }
 
@@ -1358,7 +1521,7 @@ addEventListener('keydown', e => {
     if (e.code === 'KeyQ') skill('slow');
     return;
   }
-  if (state === 'title' && e.code === 'KeyN' && e.shiftKey) { meta = defMeta(); save(); return; }
+  if (state === 'title' && e.code === 'KeyN' && e.shiftKey) { const st = meta.set; meta = defMeta(); meta.set = st; save(); return; }
   if (state === 'pause' && (e.code === 'KeyP' || e.code === 'Escape')) { state = 'play'; return; }
   if (state === 'pre') { if (/^Digit[1-9]$/.test(e.code)) { const tt = treeOf(selTree); selEnt = Math.min(+e.code.slice(5) - 1, tt.subs[tt.start].ents.length - 1); } if (e.code === 'ArrowLeft') cycleSp(-1); if (e.code === 'ArrowRight') cycleSp(1); }
   for (const b of btns) if (b.key === e.code) { sfx.click(); b.fn(); return; }
@@ -1368,11 +1531,11 @@ cv.addEventListener('pointerdown', e => {
   audioInit(); const p = logical(e); mouse = p;
   if (e.pointerType === 'touch') touchMode = true;
   try { cv.setPointerCapture(e.pointerId); } catch (er) {}
-  for (let i = btns.length - 1; i >= 0; i--) { const b = btns[i]; if (p.x >= b.x && p.x <= b.x + b.w && p.y >= b.y && p.y <= b.y + b.h) { if (state !== 'play') sfx.click(); b.fn(); return; } }
+  for (let i = btns.length - 1; i >= 0; i--) { const b = btns[i]; if (p.x >= b.x && p.x <= b.x + b.w && p.y >= b.y && p.y <= b.y + b.h) { if (b.drag) { dragBtn = b; b.fn(p); return; } if (state !== 'play') sfx.click(); b.fn(p); return; } }
   if (state === 'play') { if (e.pointerType === 'touch') { if (!joy) joy = { id: e.pointerId, ox: p.x, oy: p.y, x: p.x, y: p.y }; } else ptr = p; }
 });
-cv.addEventListener('pointermove', e => { const p = logical(e); if (joy && e.pointerId === joy.id) { joy.x = p.x; joy.y = p.y; return; } mouse = p; if (ptr) ptr = p; });
-const endPtr = e => { if (joy && e.pointerId === joy.id) joy = null; ptr = null; if (e.pointerType === 'touch') mouse = { x: -1, y: -1 }; };
+cv.addEventListener('pointermove', e => { const p = logical(e); if (dragBtn) { dragBtn.fn(p); mouse = p; return; } if (joy && e.pointerId === joy.id) { joy.x = p.x; joy.y = p.y; return; } mouse = p; if (ptr) ptr = p; });
+const endPtr = e => { if (dragBtn) { dragBtn = null; sfx.coin(); } if (joy && e.pointerId === joy.id) joy = null; ptr = null; if (e.pointerType === 'touch') mouse = { x: -1, y: -1 }; };
 cv.addEventListener('pointerup', endPtr); cv.addEventListener('pointercancel', endPtr);
 document.addEventListener('visibilitychange', () => { if (document.hidden && state === 'play') state = 'pause'; });
 
@@ -1381,21 +1544,21 @@ function frame(now) {
   const dt = Math.min(.05, (now - last) / 1000); last = now;
   ctx.setTransform(K, 0, 0, K, 0, 0); ctx.clearRect(0, 0, 960, 640); btns = [];
   if (state !== 'play') time += dt;
-  ambientOn(state === 'play' || state === 'pause'); if (state === 'play') ambientTick(dt);
-  if (['title', 'trees', 'pre', 'beetles', 'ach', 'shop'].includes(state)) musicTick(dt);
+  applyVolumes(); ambientOn(state === 'play' || state === 'pause' || (state === 'settings' && settingsBack === 'pause')); if (state === 'play') ambientTick(dt);
+  if (['title', 'trees', 'pre', 'beetles', 'ach', 'shop'].includes(state) || (state === 'settings' && settingsBack !== 'pause')) musicTick(dt);
   if (state === 'play') { update(dt); if (state === 'play') drawWorld(); }
   if (state === 'title') drawTitle(); else if (state === 'trees') drawTrees(); else if (state === 'pre') drawPre();
-  else if (state === 'beetles') drawBeetles(); else if (state === 'ach') drawAch(); else if (state === 'result') drawResult(); else if (state === 'shop') drawShop(); else if (state === 'pause') drawPause(); else if (state === 'flyout') drawFlyout(dt);
+  else if (state === 'beetles') drawBeetles(); else if (state === 'ach') drawAch(); else if (state === 'result') drawResult(); else if (state === 'shop') drawShop(); else if (state === 'settings') drawSettings(); else if (state === 'pause') drawPause(); else if (state === 'flyout') drawFlyout(dt);
   if (state !== 'play') { ctx.textAlign = 'center'; ctx.font = '17px ' + FONT; toasts.forEach((t, i) => { t.life -= dt; ctx.globalAlpha = clamp(t.life, 0, 1); ctx.fillStyle = '#ffb090'; ft(t.t, 480, 620 - i * 24); }); ctx.globalAlpha = 1; toasts = toasts.filter(t => t.life > 0); }
   requestAnimationFrame(frame);
 }
-if (location.hash) { if (location.hash.includes('touch')) touchMode = true; const h = location.hash.slice(1).replace('-touch', '').replace('-peck', '').replace('-fly', ''); if (h.startsWith('play')) { meta.energy = 9; const [a, b] = h.slice(4).split(':'); startRun(+a || 0, 0); if (b) enterSub(b, 0); for (let i = 0; i < 90; i++) update(1 / 60);
+if (location.hash) { if (location.hash.includes('touch')) touchMode = true; if (location.hash.includes('-en')) meta.set.lang = 'en'; const h = location.hash.slice(1).replace('-touch', '').replace('-en', '').replace('-peck', '').replace('-fly', ''); if (h.startsWith('play')) { meta.energy = 9; const [a, b] = h.slice(4).split(':'); startRun(+a || 0, 0); if (b) enterSub(b, 0); for (let i = 0; i < 90; i++) update(1 / 60);
     if (location.hash.includes('peck')) { const L = G.sub.layers[G.layer]; let f = -1; for (let i = 0; i < L.peck.length; i++) if (L.peck[i] && L.type[i] === TUN) { f = i; break; } if (f >= 0) { G.p.x = G.p.sx = f % G.sub.W + .5; G.p.y = G.p.sy = ((f / G.sub.W) | 0) + .5; G.pecker.cd = 0; for (let i = 0; i < 600 && !(G.pecker.st === 'warn' && G.pecker.t > .5); i++) update(1 / 60); } }
-    if (location.hash.includes('fly')) { G.larvae = 4; finish(true, 'тест'); G.flyT = 1.0; } } else if (['trees', 'pre', 'beetles', 'ach', 'title', 'shop'].includes(h)) { if (h === 'pre') selTree = 1; state = h; } }
+    if (location.hash.includes('fly')) { G.larvae = 4; finish(true, 'тест'); G.flyT = 1.0; } } else if (['trees', 'pre', 'beetles', 'ach', 'title', 'shop', 'settings'].includes(h)) { if (h === 'pre') selTree = 1; state = h; } }
 dailyGift();
 requestAnimationFrame(frame);
 // хуки для автотестов
-window.__k = { makeTree, bonusTree, SHOP, get gift() { return gift; }, sfx, snd: { ambientOn, ambientTick, musicTick, creak, chirp }, update: dt => update(dt), startRun, get G() { return G; }, get state() { return state; }, set state(v) { state = v; }, keys, meta, TREES, finish, genSub, pickup, SPECIES, bfsField, enterSub };
+window.__k = { L: tr, EN, frame: t => frame(t), get selTree() { return selTree; }, set selTree(v) { selTree = v; }, set gift(v) { gift = v; }, makeTree, bonusTree, SHOP, get gift() { return gift; }, sfx, snd: { ambientOn, ambientTick, musicTick, creak, chirp }, update: dt => update(dt), startRun, get G() { return G; }, get state() { return state; }, set state(v) { state = v; }, keys, meta, TREES, finish, genSub, pickup, SPECIES, bfsField, enterSub };
 </script>
 </body>
 </html>
