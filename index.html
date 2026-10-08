@@ -7,9 +7,12 @@
 <style>
   html,body{margin:0;height:100%;background:#0b0f08;display:flex;align-items:center;justify-content:center;overflow:hidden;touch-action:none}
   canvas{max-width:100vw;max-height:100vh;aspect-ratio:3/2;width:min(100vw,150vh);cursor:default}
+  #rot{display:none;position:fixed;inset:0;z-index:5;background:#0b0f08;color:#ffe9a8;font:600 22px "Segoe UI",Roboto,Arial,sans-serif;align-items:center;justify-content:center;text-align:center;padding:24px;line-height:1.5}
+  @media (orientation:portrait) and (pointer:coarse){#rot{display:flex}}
 </style>
 </head>
 <body>
+<div id="rot">Поверни телефон горизонтально<br>↻</div>
 <canvas id="cv" width="1920" height="1280"></canvas>
 <script>
 'use strict';
@@ -121,7 +124,7 @@ const sfx = {
 
 // ===================== ДАННЫЕ =====================
 const AIR = 0, TUN = 1, SOFT = 2, MED = 3, DENSE = 4, RESIN = 5, STONE = 6, BARK = 7;
-const DIG = [0, 0, .10, .28, .60, 1.4, 0, .75];   // базовое время укуса, с
+const DIG = [0, 0, .08, .18, .36, .9, 0, .5];      // время, за которое стачивается клетка (с)
 const PARTS = [
   { k: 'legs', n: 'Лапки', d: 'скорость передвижения по ходам' },
   { k: 'jaws', n: 'Челюсти', d: 'скорость прогрызания' },
@@ -240,7 +243,7 @@ function setBase(sub, L, i) {
 const BIN = [1, 4, 6, 4, 1];
 function openAt(sub, L, x, y) { // размытая маска хода в клетке (x, y)
   const W = sub.W, H = sub.H; let s2 = 0;
-  for (let oy = -2; oy <= 2; oy++) for (let ox = -2; ox <= 2; ox++) { const cx = x + ox, cy = y + oy; if (cx < 0 || cy < 0 || cx >= W || cy >= H) continue; if (L.type[cy * W + cx] === TUN) s2 += BIN[ox + 2] * BIN[oy + 2]; }
+  for (let oy = -2; oy <= 2; oy++) for (let ox = -2; ox <= 2; ox++) { const cx = x + ox, cy = y + oy; if (cx < 0 || cy < 0 || cx >= W || cy >= H) continue; const ii = cy * W + cx; s2 += BIN[ox + 2] * BIN[oy + 2] * (L.type[ii] === TUN ? 1 : L.dmg[ii] * .85); }
   return s2 / 256;
 }
 function refreshOpen(sub, L, x, y) { for (let oy = -2; oy <= 2; oy++) for (let ox = -2; ox <= 2; ox++) { const cx = x + ox, cy = y + oy; if (cx >= 0 && cy >= 0 && cx < sub.W && cy < sub.H) L.open[cy * sub.W + cx] = openAt(sub, L, cx, cy); } }
@@ -294,7 +297,7 @@ function genSub(tree, id, seed) {
         if (pk.all || d <= B + 8) peck[y * W + x] = 1;
       }
     }
-    sub.layers.push({ type, tint: new Uint8Array(W * H), base: new Uint8ClampedArray(W * H * 3), open: new Float32Array(W * H), peck, exp: new Uint8Array(W * H), rooms: [] });
+    sub.layers.push({ type, tint: new Uint8Array(W * H), base: new Uint8ClampedArray(W * H * 3), open: new Float32Array(W * H), dmg: new Float32Array(W * H), peck, exp: new Uint8Array(W * H), rooms: [] });
   }
   const free = (li, cx, cy) => !used.has(key(li, cx, cy));
   const nearEnt = (li, cx, cy) => sub.ents.some(e => e.layer === li && Math.abs(e.cx - cx) + Math.abs(e.cy - cy) < 3);
@@ -370,7 +373,7 @@ function genSub(tree, id, seed) {
 // ===================== СОСТОЯНИЕ ИГРЫ =====================
 let state = 'title', time = 0, selTree = 0, selEnt = 0, selSp = 0;
 let G = null, keys = {}, ptr = null, camX = 0, camY = 0, toasts = [], shake = 0, flash = 0, fade = 0, resultInfo = null, parts = [], pops = [];
-let flow = null, flowT = 0, flowLayer = -1, mmT = 0, mmKey = '', mapMode = 0;
+let flow = null, flowT = 0, flowLayer = -1, mmT = 0, mmKey = '', mapMode = 0, touchMode = false, joy = null;
 
 function say(t, d) { toasts.push({ t, life: d || 3 }); if (toasts.length > 3) toasts.shift(); }
 
@@ -382,7 +385,7 @@ function startRun(ti, entIdx) {
   const hpMax = 100 * sp.m.hp * (1 + .12 * (lvl('back') - 1));
   G = { ti, tree, seed: (Math.random() * 1e9) | 0, subs: {}, sub: null, layer: 0, time: tree.time, larvae: 0, coins: 0, kills: 0, dodges: 0, dmgTaken: 0, secrets: 0, signs: [], cut: false,
     hp: hpMax, hpMax, dmgBase: 12 * (1 + .15 * (lvl('ant') - 1)), buffs: {}, boost: 0, boostCd: 0, slow: 0, slowCd: 0, tutI: 0, t: 0, over: false,
-    p: { x: 0, y: 0, a: 0, r: 1.5, leg: 0, digT: 0, digTile: -1, hurt: 0 }, pecker: { t: 0, st: 'idle', cd: 0 } };
+    p: { x: 0, y: 0, sx: 0, sy: 0, a: 0, r: 1.5, leg: 0, digT: 0, digTile: -1, hurt: 0, gnaw: 0 }, pecker: { t: 0, st: 'idle', cd: 0 } };
   enterSub(tree.start, entIdx || 0, true);
   parts = []; pops = []; toasts = []; flash = 0; shake = 0; state = 'play';
   return true;
@@ -393,7 +396,7 @@ function enterSub(id, en, first) {
   if (!G.subs[id]) { let h = 0; for (const c of id) h = h * 31 + c.charCodeAt(0); G.subs[id] = genSub(tree, id, G.seed + h * 977); }
   G.sub = G.subs[id];
   const e = G.sub.ents[Math.min(en, G.sub.ents.length - 1)];
-  G.layer = e.layer; G.p.x = e.x; G.p.y = e.y; G.p.digTile = -1; G.p.digT = 0; G.pecker = { t: 0, st: 'idle', cd: 2 };
+  G.layer = e.layer; G.p.x = G.p.sx = e.x; G.p.y = G.p.sy = e.y; G.p.digTile = -1; G.p.digT = 0; G.pecker = { t: 0, st: 'idle', cd: 2 };
   camX = G.p.x - VW / 2; camY = G.p.y - VH / 2; flow = null; mmKey = ''; fade = 1;
   if (!first) { sfx.portal(); say(ZN[id[0]] + ' · ' + G.sub.cfg.name, 3); } else say(tree.name + ' · ' + G.sub.cfg.name, 3);
 }
@@ -402,9 +405,10 @@ function hasBuff(k) { return (G.buffs[k] || 0) > 0; }
 function spMod() { return SPECIES[meta.sp].m; }
 function tileAt(L, W, H, x, y) { const cx = Math.floor(x), cy = Math.floor(y); if (cx < 0 || cy < 0 || cx >= W || cy >= H) return AIR; return L.type[cy * W + cx]; }
 
+function passAt(L, W, H, x, y) { const cx = Math.floor(x), cy = Math.floor(y); if (cx < 0 || cy < 0 || cx >= W || cy >= H) return false; const i = cy * W + cx; return L.type[i] === TUN || L.dmg[i] >= .75; }
 function circleFree(L, W, H, x, y, r) {
-  if (tileAt(L, W, H, x, y) !== TUN) return false;
-  for (let k = 0; k < 8; k++) { const a = k * .7854; if (tileAt(L, W, H, x + Math.cos(a) * r * .8, y + Math.sin(a) * r * .8) !== TUN) return false; }
+  if (!passAt(L, W, H, x, y)) return false;
+  for (let k = 0; k < 8; k++) { const a = k * .7854; if (!passAt(L, W, H, x + Math.cos(a) * r * .8, y + Math.sin(a) * r * .8)) return false; }
   return true;
 }
 function enemyBlocks(x, y, r) {
@@ -424,6 +428,11 @@ function moveEnt(e, L, sub, vx, vy, dt, isPlayer) {
 
 function inputDir() {
   let dx = (keys.ArrowRight || keys.KeyD ? 1 : 0) - (keys.ArrowLeft || keys.KeyA ? 1 : 0), dy = (keys.ArrowDown || keys.KeyS ? 1 : 0) - (keys.ArrowUp || keys.KeyW ? 1 : 0);
+  if (!dx && !dy && joy) { // виртуальный джойстик: «плавающий», тянется за пальцем
+    let jx = joy.x - joy.ox, jy = joy.y - joy.oy, jl = Math.hypot(jx, jy);
+    if (jl > 70) { joy.ox = joy.x - jx / jl * 70; joy.oy = joy.y - jy / jl * 70; jx = joy.x - joy.ox; jy = joy.y - joy.oy; jl = 70; }
+    if (jl > 9) { dx = jx / jl; dy = jy / jl; }
+  }
   if (!dx && !dy && ptr) {
     const mx = ptr.x / S + camX, my = ptr.y / S + camY, ddx = mx - G.p.x, ddy = my - G.p.y, d = Math.hypot(ddx, ddy);
     if (d > 1.5) { dx = ddx / d; dy = ddy / d; }
@@ -472,38 +481,30 @@ function update(dt) {
       // впереди свободно, а тело цепляется краем — скользим вдоль стенки
       for (const o of [.45, -.45, .9, -.9, 1.3, -1.3]) { const a2 = Math.atan2(dy, dx) + o; if (moveEnt(p, L, sub, Math.cos(a2) * spd * .9, Math.sin(a2) * spd * .9, dt, true)) { moving = true; break; } }
     }
-    let px = 0, py = 0, ci = -1, tt = 0;
-    const base = Math.atan2(dy, dx), offs = direct ? [0] : [0, .6, -.6, 1.1, -1.1, 1.6, -1.6];
-    for (const o of offs) {
-      const qx = p.x + Math.cos(base + o) * (p.r + .9), qy = p.y + Math.sin(base + o) * (p.r + .9), cx = Math.floor(qx), cy = Math.floor(qy);
-      if (cx < 0 || cy < 0 || cx >= W || cy >= H) continue;
-      const t = L.type[cy * W + cx];
-      if (t >= SOFT && t !== STONE) { px = qx; py = qy; ci = cy * W + cx; tt = t; break; }
+    // плавная грызня: древесина перед жуком стачивается понемногу, со всего «лица» сразу
+    const jaw = 1 + .12 * (lvl('jaws') - 1), fx = p.x + dx * p.r * .8, fy = p.y + dy * p.r * .8, GR = p.r + .9;
+    let gnawed = 0, resin = false, dsum = 0;
+    for (let yy = Math.floor(fy - GR); yy <= fy + GR; yy++) for (let xx = Math.floor(fx - GR); xx <= fx + GR; xx++) {
+      if (xx < 0 || yy < 0 || xx >= W || yy >= H) continue;
+      const i = yy * W + xx, t = L.type[i]; if (t < SOFT || t === STONE) continue;
+      const ox = xx + .5 - p.x, oy = yy + .5 - p.y, od = Math.hypot(ox, oy);
+      if (ox * dx + oy * dy < od * .25) continue;                       // только то, что впереди
+      const d2 = Math.hypot(xx + .5 - fx, yy + .5 - fy); if (d2 > GR) continue;
+      const mult = (t === SOFT ? sm.soft : t === MED ? sm.med : t === DENSE ? sm.dense : t === BARK ? sm.bark : 1) * jaw;
+      L.dmg[i] += dt * mult * (.35 + .65 * (1 - d2 / GR)) / DIG[t];
+      gnawed++; dsum += t; if (t === RESIN) resin = true;
+      if (L.dmg[i] >= 1) { carveTile(sub, L, i, t === BARK ? 2 : 1); mmKey = ''; } else refreshOpen(sub, L, xx, yy);
     }
-    if (ci < 0 && !direct) {
-      // упёрлись в выступ вплотную к телу — грызём ближайший мешающий кусок в сторону движения
-      let bd = 1e9;
-      for (let yy = Math.floor(p.y - p.r - 1.5); yy <= p.y + p.r + 1.5; yy++) for (let xx = Math.floor(p.x - p.r - 1.5); xx <= p.x + p.r + 1.5; xx++) {
-        if (xx < 0 || yy < 0 || xx >= W || yy >= H) continue;
-        const t = L.type[yy * W + xx]; if (t < SOFT || t === STONE) continue;
-        const ddx = xx + .5 - p.x, ddy = yy + .5 - p.y, dd = Math.hypot(ddx, ddy);
-        if (dd > p.r + 1.5 || (ddx * dx + ddy * dy) / (dd || 1) < -.1) continue;
-        if (dd < bd) { bd = dd; ci = yy * W + xx; tt = t; px = xx + .5; py = yy + .5; }
-      }
+    if (gnawed) {
+      p.gnaw = .12;
+      if (resin && !hasBuff('regen')) hurt(2 * dt, true);
+      if ((p.chewT = (p.chewT || 0) - dt) <= 0) { p.chewT = .09; sfx.chew(dsum / gnawed / 6); if (Math.random() < .7) parts.push({ x: fx + dx * .8, y: fy + dy * .8, vx: (Math.random() - .5) * 12, vy: -Math.random() * 9, life: .45, c: resin ? '#f0a63e' : '#cfa56a' }); }
+      p.leg += dt * 5;
     }
-    if (ci >= 0) {
-      if (p.digTile !== ci) { // соседний кусок той же стенки — прогресс укуса не теряем
-        if (p.digTile < 0 || Math.hypot(p.digTile % W - ci % W, ((p.digTile / W) | 0) - ((ci / W) | 0)) > 2.5) p.digT = 0;
-        p.digTile = ci;
-      }
-      const mult = (tt === SOFT ? sm.soft : tt === MED ? sm.med : tt === DENSE ? sm.dense : tt === BARK ? sm.bark : 1) * (1 + .12 * (lvl('jaws') - 1));
-      const need = DIG[tt] / mult / (tt === RESIN ? .25 : 1);
-      p.digT += dt * (direct ? .5 : 1);
-      if (tt === RESIN && !hasBuff('regen')) hurt(2 * dt, true);
-      if (p.digT >= need) { bite(L, sub, px, py, tt); p.digT = 0; p.digTile = -1; }
-    } else { p.digT = Math.max(0, p.digT - dt); if (p.digT <= 0) p.digTile = -1; }
     if (moving) p.leg += dt * 14;
   } else { p.digTile = -1; p.digT = 0; }
+  p.gnaw = Math.max(0, (p.gnaw || 0) - dt);
+  const sk = Math.min(1, dt * (p.gnaw > 0 ? 6 : 12)); p.sx += (p.x - p.sx) * sk; p.sy += (p.y - p.sy) * sk;
   if (G.over) return;
   // исследование
   const r0 = 9; for (let y = Math.floor(p.y - r0); y <= p.y + r0; y++) for (let x = Math.floor(p.x - r0); x <= p.x + r0; x++) {
@@ -518,7 +519,7 @@ function update(dt) {
   for (const lk of sub.links) {
     lk.cd = Math.max(0, lk.cd - dt);
     if (lk.cd > 0 || (G.layer !== lk.a && G.layer !== lk.b)) continue;
-    if (Math.hypot(lk.x - p.x, lk.y - p.y) < 1.6) { G.layer = G.layer === lk.a ? lk.b : lk.a; lk.cd = 1.2; sfx.portal(); say('Переход: ' + LNAMES[sub.nL][G.layer], 2); mmKey = ''; fade = .5; flow = null; return; }
+    if (Math.hypot(lk.x - p.x, lk.y - p.y) < 1.6) { p.sx = p.x; p.sy = p.y; G.layer = G.layer === lk.a ? lk.b : lk.a; lk.cd = 1.2; sfx.portal(); say('Переход: ' + LNAMES[sub.nL][G.layer], 2); mmKey = ''; fade = .5; flow = null; return; }
   }
   // выходы
   for (const ex of sub.exits) {
@@ -543,26 +544,12 @@ function update(dt) {
   updatePecker(dt, L, sub);
   if (G.over) return;
   // подсказки
-  const TUT = [[0, 'Дерево — сплошная древесина. Стрелки/WASD: ползи, упёрся — грызёшь свой ход.'], [7, 'Старые ходы — готовые дороги между гнёздами. Остальное прогрызай сам.'], [14, 'Собери личинок ☆ (нужно ' + G.tree.need + ') и найди ВЫЛЕТ. Личинку чуешь стрелкой.'], [24, 'Зелёный круг у врага — победишь, красный — беги! Shift — рывок, Q — время.']];
+  const TUT = [[0, (touchMode ? 'Дерево — сплошная древесина. Веди пальцем: куда тянешь — туда ползёт и грызёт.' : 'Дерево — сплошная древесина. Стрелки/WASD: ползи, упёрся — грызёшь свой ход.')], [7, 'Старые ходы — готовые дороги между гнёздами. Остальное прогрызай сам.'], [14, 'Собери личинок ☆ (нужно ' + G.tree.need + ') и найди ВЫЛЕТ. Личинку чуешь стрелкой.'], [24, 'Зелёный круг у врага — победишь, красный — беги! ' + (touchMode ? 'Кнопки справа: рывок и время.' : 'Shift — рывок, Q — время.')]];
   if (G.ti === 0) while (G.tutI < TUT.length && G.t >= TUT[G.tutI][0]) { say(TUT[G.tutI][1], 5); G.tutI++; }
   for (const t of toasts) t.life -= dt; toasts = toasts.filter(t => t.life > 0);
   for (const q of pops) { q.y -= 5 * dt; q.life -= dt; } pops = pops.filter(q => q.life > 0);
   for (const q of parts) { q.x += q.vx * dt; q.y += q.vy * dt; q.vy += 30 * dt; q.life -= dt; } parts = parts.filter(q => q.life > 0);
   shake = Math.max(0, shake - dt * 8); flash = Math.max(0, flash - dt * 2.5); fade = Math.max(0, fade - dt * 2.5);
-}
-
-function bite(L, sub, px, py, tt) {
-  const W = sub.W, H = sub.H;
-  const BR = 2.4;
-  for (let y = Math.floor(py - BR); y <= py + BR; y++) for (let x = Math.floor(px - BR); x <= px + BR; x++) {
-    if (x < 0 || y < 0 || x >= W || y >= H) continue;
-    if ((x + .5 - px) ** 2 + (y + .5 - py) ** 2 > BR * BR) continue;
-    const i = y * W + x, t = L.type[i];
-    if (t >= SOFT && t !== STONE) { L.type[i] = TUN; L.tint[i] = t === BARK ? 2 : 1; setBase(sub, L, i); refreshOpen(sub, L, x, y); }
-  }
-  sfx.chew(tt / 5);
-  for (let k = 0; k < 4; k++) parts.push({ x: px, y: py, vx: (Math.random() - .5) * 18, vy: -Math.random() * 12, life: .5, c: tt === RESIN ? '#f0a63e' : '#cfa56a' });
-  mmKey = '';
 }
 
 function hurt(n, quiet) {
@@ -749,7 +736,7 @@ function renderView() {
   ctx.drawImage(off, -(camX - x0) * S, -(camY - y0) * S, BW * S / RB, BH * S / RB);
 }
 
-function drawBeetle(x, y, a, r, col, dark, leg, hurtF) {
+function drawBeetle(x, y, a, r, col, dark, leg, hurtF, chew) {
   ctx.save(); ctx.translate(x * S, y * S); ctx.rotate(a); const k = r * S / 7; ctx.scale(k, k);
   ctx.fillStyle = 'rgba(0,0,0,.35)'; ctx.beginPath(); ctx.ellipse(-.5, 1.2, 8.5, 5.2, 0, 0, 7); ctx.fill();
   ctx.strokeStyle = dark; ctx.lineWidth = 1.1; ctx.lineCap = 'round';
@@ -764,6 +751,7 @@ function drawBeetle(x, y, a, r, col, dark, leg, hurtF) {
   ctx.beginPath(); ctx.ellipse(7, 0, 1.7, 2, 0, 0, 7); ctx.fill();                                // голова
   ctx.strokeStyle = '#e8d8b0'; ctx.lineWidth = .8; ctx.beginPath(); ctx.moveTo(8.2, -1); ctx.quadraticCurveTo(9.8, -1.6, 10.2, -.4); ctx.moveTo(8.2, 1); ctx.quadraticCurveTo(9.8, 1.6, 10.2, .4); ctx.stroke();
   ctx.strokeStyle = dark; ctx.lineWidth = .7; ctx.beginPath(); ctx.moveTo(7.5, -1.6); ctx.lineTo(10.5, -4); ctx.moveTo(7.5, 1.6); ctx.lineTo(10.5, 4); ctx.stroke(); // усики
+  if (chew) { const o = .5 + .5 * Math.sin(time * 34); ctx.strokeStyle = '#3a2410'; ctx.lineWidth = 1.1; ctx.beginPath(); ctx.moveTo(8.4, -.8); ctx.lineTo(10.3, -.3 - 1.4 * o); ctx.moveTo(8.4, .8); ctx.lineTo(10.3, .3 + 1.4 * o); ctx.stroke(); } // жвалы
   ctx.restore();
 }
 
@@ -814,8 +802,8 @@ function drawWorld() {
   }
   ctx.globalAlpha = 1;
   const sp = SPECIES[meta.sp];
-  if (hasBuff('speed') || G.boost > 0) { ctx.fillStyle = 'rgba(255,230,80,.3)'; ctx.beginPath(); ctx.arc(p.x * S, p.y * S, p.r * S * 1.9, 0, 7); ctx.fill(); }
-  drawBeetle(p.x, p.y, p.a, p.r, sp.col, '#1c1208', p.leg, p.hurt > 0);
+  if (hasBuff('speed') || G.boost > 0) { ctx.fillStyle = 'rgba(255,230,80,.3)'; ctx.beginPath(); ctx.arc(p.sx * S, p.sy * S, p.r * S * 1.9, 0, 7); ctx.fill(); }
+  drawBeetle(p.sx, p.sy, p.a, p.r, sp.col, '#1c1208', p.leg, p.hurt > 0, p.gnaw > 0);
   if (G.pecker.st === 'warn') { const t = G.pecker.t / .9; ctx.strokeStyle = `rgba(255,50,30,${.5 + .4 * Math.sin(time * 30)})`; ctx.lineWidth = 4; ctx.beginPath(); ctx.arc(p.x * S, p.y * S, (1 - t * .6) * 40 + 12, 0, 7); ctx.stroke(); txt('ТУК!', p.x * S, p.y * S - 44, 20, '#ff6a50', 'center', true); }
   for (const q of parts) { ctx.globalAlpha = clamp(q.life * 2, 0, 1); ctx.fillStyle = q.c; ctx.fillRect(q.x * S, q.y * S, S * .6, S * .6); }
   ctx.globalAlpha = 1;
@@ -874,11 +862,12 @@ function drawHUD() {
     for (const e of sub.enemies) if (e.layer === G.layer && !e.dead && Math.hypot(e.x - p.x, e.y - p.y) < 22) dot(e.x, e.y, '#ff4030', 2);
     dot(p.x, p.y, '#40ff40', 2.8 + Math.sin(time * 8) * .6);
     ctx.globalAlpha = 1;
-    txt(big ? 'Tab — скрыть карту' : 'Tab — карта', big ? 480 : mx0 + mw2, my0 + mh2 + (big ? 30 : 20), 12, '#cfc7a4', big ? 'center' : 'right');
-  } else txt('Tab — карта', 950, 84, 12, '#cfc7a4', 'right');
+    txt(touchMode ? (big ? 'Нажми — скрыть' : 'Нажми — крупнее') : (big ? 'Tab — скрыть карту' : 'Tab — карта'), big ? 480 : mx0 + mw2, my0 + mh2 + (big ? 30 : 20), 12, '#cfc7a4', big ? 'center' : 'right');
+    btns.push(big ? { x: 0, y: 0, w: 960, h: 640, fn: () => { mapMode = 2; } } : { x: mx0 - 6, y: my0 - 6, w: mw2 + 12, h: mh2 + 30, fn: () => { mapMode = 1; } });
+  } else { txt(touchMode ? 'Карта' : 'Tab — карта', 950, 84, 13, '#cfc7a4', 'right'); btns.push({ x: 860, y: 66, w: 100, h: 30, fn: () => { mapMode = 0; } }); }
   // навыки — круглые кнопки с иконками и кольцом перезарядки
   const skillBtn = (cx, cy, icon, cd, max, key, active, which) => {
-    const R = 28, ready = cd <= 0;
+    const R = touchMode ? 38 : 28, ready = cd <= 0;
     ctx.save(); ctx.shadowColor = active ? 'rgba(255,220,100,.8)' : 'rgba(0,0,0,.6)'; ctx.shadowBlur = active ? 18 : 8;
     const g = ctx.createRadialGradient(cx - 8, cy - 10, 3, cx, cy, R); g.addColorStop(0, ready ? '#6a5528' : '#3a3020'); g.addColorStop(1, '#16120a');
     ctx.fillStyle = g; ctx.beginPath(); ctx.arc(cx, cy, R, 0, 7); ctx.fill(); ctx.restore();
@@ -897,7 +886,20 @@ function drawHUD() {
   const glass = (cx, cy) => { ctx.strokeStyle = '#d8f0ff'; ctx.fillStyle = 'rgba(150,210,255,.5)'; ctx.lineWidth = 2;
     ctx.beginPath(); ctx.moveTo(cx - 8, cy - 11); ctx.lineTo(cx + 8, cy - 11); ctx.lineTo(cx, cy); ctx.lineTo(cx + 8, cy + 11); ctx.lineTo(cx - 8, cy + 11); ctx.lineTo(cx, cy); ctx.closePath(); ctx.stroke();
     ctx.beginPath(); ctx.moveTo(cx - 5, cy + 10); ctx.lineTo(cx + 5, cy + 10); ctx.lineTo(cx, cy + 4); ctx.closePath(); ctx.fill(); };
-  skillBtn(838, 586, wing, G.boostCd, 8, 'Shift', G.boost > 0, 'boost'); skillBtn(910, 586, glass, G.slowCd, 22, 'Q', G.slow > 0, 'slow');
+  if (touchMode) { skillBtn(892, 548, wing, G.boostCd, 8, 'Рывок', G.boost > 0, 'boost'); skillBtn(790, 584, glass, G.slowCd, 22, 'Время', G.slow > 0, 'slow'); }
+  else { skillBtn(838, 586, wing, G.boostCd, 8, 'Shift', G.boost > 0, 'boost'); skillBtn(910, 586, glass, G.slowCd, 22, 'Q', G.slow > 0, 'slow'); }
+  // пауза (кнопкой — удобно на телефоне)
+  { const cx = 302, cy = 28, R = 17, hov = Math.hypot(mouse.x - cx, mouse.y - cy) < R; ctx.fillStyle = hov ? 'rgba(120,90,40,.9)' : 'rgba(20,16,8,.75)'; ctx.beginPath(); ctx.arc(cx, cy, R, 0, 7); ctx.fill(); ctx.strokeStyle = '#8a7440'; ctx.lineWidth = 1.5; ctx.stroke();
+    ctx.fillStyle = '#efe6c4'; ctx.fillRect(cx - 6, cy - 7, 4, 14); ctx.fillRect(cx + 2, cy - 7, 4, 14); btns.push({ x: cx - R - 4, y: cy - R - 4, w: 2 * R + 8, h: 2 * R + 8, fn: () => { state = 'pause'; } }); }
+  // джойстик
+  if (touchMode) {
+    if (joy) {
+      const jx = joy.x - joy.ox, jy = joy.y - joy.oy, jl = Math.min(70, Math.hypot(jx, jy)), ja = Math.atan2(jy, jx);
+      ctx.fillStyle = 'rgba(255,240,200,.08)'; ctx.strokeStyle = 'rgba(255,230,170,.35)'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(joy.ox, joy.oy, 70, 0, 7); ctx.fill(); ctx.stroke();
+      const kx = joy.ox + Math.cos(ja) * jl, ky = joy.oy + Math.sin(ja) * jl, g2 = ctx.createRadialGradient(kx - 6, ky - 8, 3, kx, ky, 28); g2.addColorStop(0, 'rgba(255,240,200,.75)'); g2.addColorStop(1, 'rgba(180,140,70,.55)');
+      ctx.fillStyle = g2; ctx.beginPath(); ctx.arc(kx, ky, 28, 0, 7); ctx.fill();
+    } else if (G.t < 20) { ctx.globalAlpha = .55 + .2 * Math.sin(time * 3); ctx.strokeStyle = 'rgba(255,230,170,.6)'; ctx.lineWidth = 2; ctx.setLineDash([6, 6]); ctx.beginPath(); ctx.arc(140, 520, 60, 0, 7); ctx.stroke(); ctx.setLineDash([]); txt('Коснись и веди пальцем', 140, 524, 14, '#efe6c4', 'center'); ctx.globalAlpha = 1; }
+  }
   ctx.textAlign = 'center'; ctx.font = '17px ' + FONT;
   toasts.forEach((t, i) => { ctx.globalAlpha = clamp(t.life, 0, 1); const y = 140 + i * 34, w = ctx.measureText(t.t).width + 32; rrect(480 - w / 2, y - 22, w, 31, 15); ctx.fillStyle = 'rgba(8,8,4,.78)'; ctx.fill(); ctx.strokeStyle = 'rgba(200,170,90,.4)'; ctx.lineWidth = 1; ctx.stroke(); ctx.fillStyle = '#fff2c8'; ft(t.t, 480, y); });
   ctx.globalAlpha = 1;
@@ -925,6 +927,7 @@ function drawTitle() {
   btn('Играть', 330, 350, 300, 56, () => { state = 'trees'; }, { key: 'Enter', size: 24 });
   btn('Короеды и прокачка', 330, 418, 300, 46, () => { state = 'beetles'; selSp = meta.sp; }, { size: 18 });
   btn('Достижения', 330, 474, 300, 46, () => { state = 'ach'; }, { size: 18 });
+  if (document.fullscreenEnabled && !document.fullscreenElement) btn('⛶ На весь экран', 660, 474, 200, 46, () => { document.documentElement.requestFullscreen().catch(() => {}); try { screen.orientation.lock('landscape').catch(() => {}); } catch (er) {} }, { size: 14 });
   energyLine(560);
   txt('Звук: ' + (meta.sound ? 'вкл' : 'выкл') + ' (M) · Shift+N — стереть прогресс', 480, 596, 13, '#8a8468');
 }
@@ -1048,11 +1051,14 @@ addEventListener('keydown', e => {
 addEventListener('keyup', e => { keys[e.code] = false; });
 cv.addEventListener('pointerdown', e => {
   audioInit(); const p = logical(e); mouse = p;
+  if (e.pointerType === 'touch') touchMode = true;
+  try { cv.setPointerCapture(e.pointerId); } catch (er) {}
   for (let i = btns.length - 1; i >= 0; i--) { const b = btns[i]; if (p.x >= b.x && p.x <= b.x + b.w && p.y >= b.y && p.y <= b.y + b.h) { if (state !== 'play') sfx.click(); b.fn(); return; } }
-  if (state === 'play') ptr = p;
+  if (state === 'play') { if (e.pointerType === 'touch') { if (!joy) joy = { id: e.pointerId, ox: p.x, oy: p.y, x: p.x, y: p.y }; } else ptr = p; }
 });
-cv.addEventListener('pointermove', e => { mouse = logical(e); if (ptr) ptr = mouse; });
-addEventListener('pointerup', () => { ptr = null; });
+cv.addEventListener('pointermove', e => { const p = logical(e); if (joy && e.pointerId === joy.id) { joy.x = p.x; joy.y = p.y; return; } mouse = p; if (ptr) ptr = p; });
+const endPtr = e => { if (joy && e.pointerId === joy.id) joy = null; ptr = null; if (e.pointerType === 'touch') mouse = { x: -1, y: -1 }; };
+cv.addEventListener('pointerup', endPtr); cv.addEventListener('pointercancel', endPtr);
 document.addEventListener('visibilitychange', () => { if (document.hidden && state === 'play') state = 'pause'; });
 
 let last = performance.now();
@@ -1066,7 +1072,7 @@ function frame(now) {
   if (state !== 'play') { ctx.textAlign = 'center'; ctx.font = '17px ' + FONT; toasts.forEach((t, i) => { t.life -= dt; ctx.globalAlpha = clamp(t.life, 0, 1); ctx.fillStyle = '#ffb090'; ft(t.t, 480, 620 - i * 24); }); ctx.globalAlpha = 1; toasts = toasts.filter(t => t.life > 0); }
   requestAnimationFrame(frame);
 }
-if (location.hash) { const h = location.hash.slice(1); if (h.startsWith('play')) { meta.energy = 9; const [a, b] = h.slice(4).split(':'); startRun(+a || 0, 0); if (b) enterSub(b, 0); for (let i = 0; i < 90; i++) update(1 / 60); } else if (['trees', 'pre', 'beetles', 'ach', 'title'].includes(h)) { if (h === 'pre') selTree = 1; state = h; } }
+if (location.hash) { if (location.hash.includes('touch')) touchMode = true; const h = location.hash.slice(1).replace('-touch', ''); if (h.startsWith('play')) { meta.energy = 9; const [a, b] = h.slice(4).split(':'); startRun(+a || 0, 0); if (b) enterSub(b, 0); for (let i = 0; i < 90; i++) update(1 / 60); } else if (['trees', 'pre', 'beetles', 'ach', 'title'].includes(h)) { if (h === 'pre') selTree = 1; state = h; } }
 requestAnimationFrame(frame);
 // хуки для автотестов
 window.__k = { update: dt => update(dt), startRun, get G() { return G; }, get state() { return state; }, set state(v) { state = v; }, keys, meta, TREES, finish, genSub, pickup, SPECIES, bfsField, enterSub };
