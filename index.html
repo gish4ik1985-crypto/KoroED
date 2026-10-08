@@ -1,0 +1,754 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>KORoED — Ходы</title>
+<style>
+  html,body{margin:0;height:100%;background:#0b0f08;display:flex;align-items:center;justify-content:center;overflow:hidden;touch-action:none}
+  canvas{max-width:100vw;max-height:100vh;aspect-ratio:3/2;width:min(100vw,150vh);cursor:crosshair}
+</style>
+</head>
+<body>
+<canvas id="cv" width="960" height="640"></canvas>
+<script>
+'use strict';
+/* =====================================================================
+   KORoED — «Ходы». Вид: поперечный срез ствола. Ты — короед.
+   Прокладывай ходы свободно. Энергия уходит на грызню; съедобная древесина
+   не видна — узнаёшь, только съев. Несъедобная даёт буровую муку (замедляет).
+   Смола заливает ходы. Дыры в коре зовут дятла, врагов и лесника.
+   Чем больше ходов — тем быстрее дерево усыхает. Счёт — длина ходов.
+   ===================================================================== */
+
+const GW = 240, GH = 160, S = 4;           // клеток, пикселей на клетку
+const CX = GW / 2, CY = GH / 2, R = 76;    // центр и радиус ствола (в клетках)
+const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
+const off = document.createElement('canvas'); off.width = GW; off.height = GH;
+const octx = off.getContext('2d'), img = octx.createImageData(GW, GH);
+
+const AIR = 0, TUN = 1, WOOD = 2, BARK = 3, RESIN = 4;
+// отметки внутри ходов
+const T_PLAIN = 0, T_EAT = 1, T_DUST = 2, T_HOLE = 3, T_SHAFT = 4, T_RESINED = 5;
+
+const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
+const lerp = (a, b, t) => a + (b - a) * t;
+function mulberry32(s) { return () => { s |= 0; s = s + 0x6D2B79F5 | 0; let t = Math.imul(s ^ s >>> 15, 1 | s); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+function hash2(x, y, s) { let n = Math.imul(x, 374761393) + Math.imul(y, 668265263) + Math.imul(s | 0, 1442695041) | 0; n = Math.imul(n ^ n >>> 13, 1274126177); return ((n ^ n >>> 16) >>> 0) / 4294967296; }
+function vnoise(x, y, s) {
+  const xi = Math.floor(x), yi = Math.floor(y), xf = x - xi, yf = y - yi;
+  const f = t => t * t * (3 - 2 * t);
+  const a = hash2(xi, yi, s), b = hash2(xi + 1, yi, s), c = hash2(xi, yi + 1, s), d = hash2(xi + 1, yi + 1, s);
+  return a + (b - a) * f(xf) + (c - a) * f(yf) + (a - b - c + d) * f(xf) * f(yf);
+}
+const fbm = (x, y, s) => vnoise(x, y, s) * 0.6 + vnoise(x * 2.1, y * 2.1, s + 7) * 0.28 + vnoise(x * 4.3, y * 4.3, s + 13) * 0.12;
+
+// ===================== МЕТА (сохранение) =====================
+const SPECIES = [
+  { name: 'Лубоед малый',     desc: 'Сбалансированный. Стартовый жук.',                       need: 0,    dig: 1.0,  speed: 1.0,  maxE: 100, dust: 0.5, bite: 1.0 },
+  { name: 'Короед-типограф',  desc: 'Плотную древесину грызёт на 30% легче, но слабее баком.', need: 400,  dig: 0.7,  speed: 0.92, maxE: 85,  dust: 0.5, bite: 1.0 },
+  { name: 'Заболонник-бегун', desc: 'Быстрый, мука почти не мешает, но грызёт медленнее.',    need: 1200, dig: 1.3,  speed: 1.22, maxE: 100, dust: 0.85, bite: 1.0 },
+];
+const UPG = [
+  { key: 'jaws', name: 'Челюсти', desc: 'грызёт быстрее' },
+  { key: 'legs', name: 'Лапки',   desc: 'быстрее ползёт' },
+  { key: 'gut',  name: 'Зоб',     desc: 'больше энергии, меньше расход' },
+  { key: 'shell',name: 'Панцирь', desc: 'меньше урона от врагов и дятла' },
+];
+let meta = { tree: 1, larvae: 0, total: 0, best: 0, sp: 0, up: { jaws: 0, legs: 0, gut: 0, shell: 0 }, sound: true };
+try { const s = localStorage.getItem('koroed2_save'); if (s) { const m = JSON.parse(s); meta = Object.assign(meta, m); meta.up = Object.assign({ jaws: 0, legs: 0, gut: 0, shell: 0 }, m.up); } } catch (e) {}
+const save = () => { try { localStorage.setItem('koroed2_save', JSON.stringify(meta)); } catch (e) {} };
+const upCost = k => 4 + meta.up[k] * 4;
+const sp = () => SPECIES[meta.sp];
+
+// ===================== ЗВУК =====================
+let AC = null, master = null, noiseBuf = null;
+function audioInit() {
+  if (AC) return;
+  try {
+    AC = new (window.AudioContext || window.webkitAudioContext)();
+    master = AC.createGain(); master.gain.value = 0.5; master.connect(AC.destination);
+    noiseBuf = AC.createBuffer(1, AC.sampleRate, AC.sampleRate);
+    const d = noiseBuf.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+  } catch (e) { AC = null; }
+}
+function sndNoise(freq, dur, vol, q) {
+  if (!AC || !meta.sound) return;
+  const s = AC.createBufferSource(); s.buffer = noiseBuf; s.playbackRate.value = 0.8 + Math.random() * 0.5;
+  const f = AC.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = freq; f.Q.value = q || 1.5;
+  const g = AC.createGain(); const t = AC.currentTime;
+  g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+  s.connect(f); f.connect(g); g.connect(master); s.start(t, Math.random()); s.stop(t + dur + 0.05);
+}
+function sndTone(freq, dur, vol, type, slide) {
+  if (!AC || !meta.sound) return;
+  const o = AC.createOscillator(), g = AC.createGain(), t = AC.currentTime;
+  o.type = type || 'sine'; o.frequency.setValueAtTime(freq, t);
+  if (slide) o.frequency.exponentialRampToValueAtTime(Math.max(20, freq * slide), t + dur);
+  g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+  o.connect(g); g.connect(master); o.start(t); o.stop(t + dur + 0.05);
+}
+const sfx = {
+  chew: dens => sndNoise(900 + (1 - dens) * 900, 0.07, 0.22, 2),
+  eat:  () => { sndNoise(500, 0.12, 0.25, 1); sndTone(520, 0.12, 0.08, 'triangle', 1.6); },
+  hurt: () => { sndTone(180, 0.25, 0.25, 'sawtooth', 0.4); sndNoise(300, 0.2, 0.3, 1); },
+  peck: () => { sndTone(140, 0.07, 0.35, 'square', 0.5); sndNoise(2200, 0.05, 0.2, 3); },
+  warn: () => sndTone(660, 0.15, 0.12, 'square'),
+  kill: () => { sndTone(300, 0.18, 0.2, 'triangle', 2.2); },
+  resin:() => sndTone(110, 0.3, 0.12, 'sine', 0.7),
+  win:  () => { sndTone(523, 0.2, 0.18, 'triangle'); setTimeout(() => sndTone(784, 0.3, 0.18, 'triangle'), 150); },
+};
+
+// ===================== МИР =====================
+let type, dens, edible, tint, base;
+let treeNum = 1, seed = 1, holes = [], woodCount = 1, tunCount = 0;
+let wp = null, rivals = [], dust = [];
+let bt, tree, G;          // жук, состояние дерева, состояние забега
+let flow = new Int16Array(GW * GH), flowT = 0;
+const idx = (x, y) => y * GW + x;
+
+function genTree(num) {
+  treeNum = num; seed = (Math.random() * 1e9) | 0;
+  type = new Uint8Array(GW * GH); dens = new Float32Array(GW * GH); edible = new Uint8Array(GW * GH);
+  tint = new Uint8Array(GW * GH); base = new Uint8ClampedArray(GW * GH * 3);
+  holes = []; woodCount = 0; tunCount = 0;
+  const rng = mulberry32(seed);
+  for (let y = 0; y < GH; y++) for (let x = 0; x < GW; x++) {
+    const i = idx(x, y), dx = x + .5 - CX, dy = y + .5 - CY;
+    const wob = (vnoise(x * .035, y * .035, seed) - .5) * 5;
+    const r = Math.hypot(dx, dy) + wob;
+    if (r > R) { type[i] = AIR; continue; }
+    if (r > R - 2.8) { type[i] = BARK; dens[i] = 0.9; continue; }
+    type[i] = WOOD; woodCount++;
+    const depth = 1 - r / R;
+    const w = .5 + .5 * Math.sin(r * 1.15 + 4 * (fbm(x * .05, y * .05, seed + 3) - .5));
+    const late = w > .62 ? 1 : 0;
+    dens[i] = clamp(.16 + .5 * depth * depth * 1.6 + .26 * late + (fbm(x * .2, y * .2, seed + 5) - .5) * .12, .08, 1);
+    const n = fbm(x * .075, y * .075, seed + 11);
+    const thr = lerp(.48, .66, Math.pow(depth, .8));
+    edible[i] = n > thr ? 1 : 0;
+  }
+  // смоляные карманы — глубже и плотнее; растут с номером дерева
+  const nRes = 9 + num * 3;
+  for (let k = 0; k < nRes; k++) {
+    const a = rng() * 6.283, rr = rng() * R * .66, bx = CX + Math.cos(a) * rr, by = CY + Math.sin(a) * rr, br = 2.5 + rng() * 4.5;
+    for (let y = Math.floor(by - br); y <= by + br; y++) for (let x = Math.floor(bx - br); x <= bx + br; x++) {
+      if (x < 0 || y < 0 || x >= GW || y >= GH) continue;
+      if (Math.hypot(x - bx, y - by) < br && type[idx(x, y)] === WOOD) { type[idx(x, y)] = RESIN; edible[idx(x, y)] = 0; dens[idx(x, y)] = 1; }
+    }
+  }
+  // стартовая полость у коры + входная дыра
+  const a0 = rng() * 6.283, sr = R - 11;
+  const sx = CX + Math.cos(a0) * sr, sy = CY + Math.sin(a0) * sr;
+  carveDisc(sx, sy, 3.6, T_PLAIN, true);
+  for (let d = sr; d < R + 1; d += .7) carveDisc(CX + Math.cos(a0) * d, CY + Math.sin(a0) * d, 1.7, T_HOLE, true);
+  holes = []; // входная дыра не считается
+  for (let i = 0; i < GW * GH; i++) setBase(i);
+  bt = { x: sx, y: sy, a: a0 + Math.PI, vx: 0, vy: 0, r: 1.5, leg: 0, digT: 0, digCell: -1, biteCd: 0, hurt: 0, lastBite: null, stuck: 0 };
+}
+
+// вырезать диск (грызня / дятел / большой враг). Возвращает [съедено, энергия, пыли]
+function carveDisc(cx, cy, rad, tnt, free, noBark) {
+  let cost = 0, gain = 0, eatN = 0, resinN = 0, newHole = false;
+  for (let y = Math.floor(cy - rad); y <= cy + rad; y++) for (let x = Math.floor(cx - rad); x <= cx + rad; x++) {
+    if (x < 0 || y < 0 || x >= GW || y >= GH) continue;
+    if ((x + .5 - cx) ** 2 + (y + .5 - cy) ** 2 > rad * rad) continue;
+    const i = idx(x, y), t = type[i];
+    if (t === WOOD || t === RESIN || (t === BARK && !noBark)) {
+      cost += 0.085 + 0.23 * dens[i] + (t === RESIN ? 0.7 : 0);
+      if (t === WOOD) {
+        woodCount; tunCount++;
+        if (edible[i] && tnt !== T_SHAFT) { gain += 0.62; eatN++; tint[i] = T_EAT; } else tint[i] = tnt === T_PLAIN ? T_DUST : tnt;
+      } else if (t === RESIN) { resinN++; tint[i] = T_DUST; }
+      else if (t === BARK) { tint[i] = T_HOLE; newHole = true; }
+      if (tnt === T_HOLE || tnt === T_SHAFT) tint[i] = (t === BARK) ? T_HOLE : tnt;
+      type[i] = TUN; setBase(i);
+    }
+  }
+  return { cost: free ? 0 : cost, gain: free ? 0 : gain, eatN, newHole, resinN };
+}
+
+// цвет клетки (кэш)
+function setBase(i) {
+  const x = i % GW, y = (i / GW) | 0, t = type[i];
+  let r, g, b;
+  const n = hash2(x, y, seed), n2 = fbm(x * .22, y * .22, seed + 9);
+  if (t === AIR) {
+    const d = Math.hypot(x - CX, y - CY);
+    const v = 10 + 10 * vnoise(x * .06, y * .06, seed + 21) + Math.max(0, 28 - (d - R) * .6);
+    r = v * .75; g = v * 1.05; b = v * .65;
+  } else if (t === BARK) {
+    const v = .7 + n2 * .6; r = 86 * v; g = 60 * v; b = 38 * v;
+    if (n > .93) { r += 14; g += 30; b += 6; } // мох
+  } else if (t === TUN) {
+    const k = tint[i];
+    if (k === T_EAT) { r = 66; g = 74; b = 36; }
+    else if (k === T_DUST) { r = 78; g = 64; b = 48; }
+    else if (k === T_HOLE) { r = 150; g = 170; b = 110; }
+    else if (k === T_SHAFT) { r = 120; g = 70; b = 52; }
+    else if (k === T_RESINED) { r = 200; g = 120; b = 30; }
+    else { r = 44; g = 28; b = 16; }
+    const v = .92 + (n - .5) * .16; r *= v; g *= v; b *= v;
+  } else if (t === RESIN) {
+    const v = .85 + n2 * .35; r = 232 * v; g = 140 * v; b = 36 * v;
+    if (n > .9) { r = 255; g = 210; b = 110; }
+  } else {
+    const d = dens[i];
+    const depth = 1 - Math.hypot(x - CX, y - CY) / R;
+    // заболонь светлая, ядро тёмное; поздние кольца темнее
+    const heart = clamp((depth - .25) / .6, 0, 1);
+    r = lerp(218, 150, heart); g = lerp(184, 92, heart); b = lerp(128, 54, heart);
+    const k = 1.08 - d * .42 + (n2 - .5) * .22 + (n - .5) * .05;
+    r *= k; g *= k; b *= k;
+  }
+  base[i * 3] = r; base[i * 3 + 1] = g; base[i * 3 + 2] = b;
+}
+
+// ===================== ДОСТУПНОСТЬ / ДВИЖЕНИЕ =====================
+const freeCell = (x, y) => { const cx = Math.floor(x), cy = Math.floor(y); return cx >= 0 && cy >= 0 && cx < GW && cy < GH && type[idx(cx, cy)] === TUN; };
+function circleFree(x, y, r) {
+  if (!freeCell(x, y)) return false;
+  for (let k = 0; k < 8; k++) { const a = k * .7854; if (!freeCell(x + Math.cos(a) * r * .8, y + Math.sin(a) * r * .8)) return false; }
+  return true;
+}
+function moveEnt(e, vx, vy, dt) {
+  let moved = false;
+  const nx = e.x + vx * dt; if (vx && circleFree(nx, e.y, e.r)) { e.x = nx; moved = true; }
+  const ny = e.y + vy * dt; if (vy && circleFree(e.x, ny, e.r)) { e.y = ny; moved = true; }
+  return moved;
+}
+const dustAt = (x, y) => tint[idx(clamp(Math.floor(x), 0, GW - 1), clamp(Math.floor(y), 0, GH - 1))] === T_DUST;
+
+// ===================== ИГРОВОЕ СОСТОЯНИЕ =====================
+let state = 'title';   // title | play | pause | over
+let keys = {}, ptr = null, toasts = [], shake = 0, flash = 0, time = 0, over = null;
+
+function startRun() {
+  genTree(meta.tree);
+  const maxE = sp().maxE + meta.up.gut * 15;
+  tree = { life: 100, base: Math.max(150, 330 - (treeNum - 1) * 20), attention: 0, humanT: -1 };
+  G = { energy: maxE, maxE, length: 0, quota: 90 + treeNum * 25, quotaDone: false, bites: 0, kills: 0, eaten: 0,
+        woodpeckerCd: 18, rivalCd: 20, resinCd: 4, t: 0 };
+  wp = null; rivals = []; dust = []; toasts = []; over = null; flash = 0; shake = 0;
+  say('Жуй древесину! Что съедобно — узнаешь, только съев.', 4);
+  state = 'play';
+}
+function endRun(why) {
+  const larv = Math.floor(G.length / 6) + (G.quotaDone ? 10 + treeNum * 2 : 0);
+  meta.larvae += larv; meta.total += Math.floor(G.length); meta.best = Math.max(meta.best, Math.floor(G.length));
+  if (G.quotaDone) meta.tree++;
+  const unlocked = SPECIES.findIndex((s, i) => i > 0 && s.need <= meta.total && s.need > meta.total - G.length);
+  over = { why, larv, len: Math.floor(G.length), quota: G.quotaDone, unlocked };
+  save(); state = 'over';
+}
+function say(t, d) { toasts.push({ t, life: d || 3 }); if (toasts.length > 3) toasts.shift(); }
+
+// ===================== ОБНОВЛЕНИЕ =====================
+function inputDir() {
+  let dx = (keys.ArrowRight || keys.KeyD ? 1 : 0) - (keys.ArrowLeft || keys.KeyA ? 1 : 0);
+  let dy = (keys.ArrowDown || keys.KeyS ? 1 : 0) - (keys.ArrowUp || keys.KeyW ? 1 : 0);
+  if (!dx && !dy && ptr) {
+    const mx = ptr.x / S, my = ptr.y / S, ddx = mx - bt.x, ddy = my - bt.y, d = Math.hypot(ddx, ddy);
+    if (d > 2) { dx = ddx / d; dy = ddy / d; }
+  }
+  const l = Math.hypot(dx, dy); return l ? [dx / l, dy / l] : [0, 0];
+}
+
+function update(dt) {
+  time += dt; G.t += dt;
+  const shellK = 1 - meta.up.shell * 0.1;
+  // --- жук ---
+  const [dx, dy] = inputDir();
+  const slow = dustAt(bt.x, bt.y) ? sp().dust : 1;
+  const spd = 13 * sp().speed * (1 + meta.up.legs * .1) * slow;
+  bt.hurt = Math.max(0, bt.hurt - dt); bt.biteCd = Math.max(0, bt.biteCd - dt);
+  let moving = false;
+  if (dx || dy) {
+    bt.a = Math.atan2(dy, dx);
+    moving = moveEnt(bt, dx * spd, dy * spd, dt);
+    // упёрся — грызём то, что впереди (а если там свободно, но жук не лезет — ближайшую стенку сбоку)
+    let px = 0, py = 0, ci = -1, t = 0;
+    const base = Math.atan2(dy, dx);
+    const offs = moving ? [0] : [0, .6, -.6, 1.1, -1.1, 1.6, -1.6];
+    for (const o of offs) {
+      const qx = bt.x + Math.cos(base + o) * (bt.r + 1.1), qy = bt.y + Math.sin(base + o) * (bt.r + 1.1);
+      const cx = Math.floor(qx), cy = Math.floor(qy);
+      if (cx < 0 || cy < 0 || cx >= GW || cy >= GH) continue;
+      const tt = type[idx(cx, cy)];
+      if (tt === WOOD || tt === RESIN || tt === BARK) { px = qx; py = qy; ci = idx(cx, cy); t = tt; break; }
+    }
+    if (ci >= 0) {
+      if (bt.digCell !== ci) { bt.digCell = ci; bt.digT = 0; }
+      const need = (0.10 + 0.5 * dens[ci] * (dens[ci] > .55 ? sp().dig : 1) + (t === RESIN ? .9 : 0) + (t === BARK ? .35 : 0)) / (1 + meta.up.jaws * .18);
+      bt.digT += dt * (moving ? .5 : 1);
+      if (bt.digT >= need) { bite(px, py, ci); bt.digT = 0; bt.digCell = -1; }
+    } else { bt.digCell = -1; bt.digT = 0; }
+    if (moving) bt.leg += dt * 14 * slow;
+  } else { bt.digCell = -1; bt.digT = 0; }
+  // расход энергии
+  G.energy -= dt * (1.0 - meta.up.gut * .06) * (1 + (treeNum - 1) * .03);
+  if (G.energy <= 0) { G.energy = 0; endRun('Силы кончились — ты не добрался до новой еды.'); return; }
+  // кусать врагов
+  if ((keys.Space || keys.KeyE) && bt.biteCd <= 0) { bt.biteCd = .38; biteRivals(); }
+
+  // --- дерево ---
+  const frac = tunCount / woodCount;
+  const rate = 100 / tree.base * (1 + 22 * frac);
+  tree.life -= rate * dt;
+  tree.attention = Math.max(0, tree.attention - dt * 1.3);
+  if (tree.life <= 0) { tree.life = 0; endRun('Дерево усохло — слишком много ходов и времени.'); return; }
+  // лесник
+  if (tree.attention >= 100 && tree.humanT < 0) { tree.humanT = 22; say('ЛЕСНИК ИДЁТ! Дыр слишком много — затаись, пока внимание спадёт!', 4); sfx.warn(); }
+  if (tree.humanT >= 0) {
+    if (tree.attention < 65) { tree.humanT = -1; say('Лесник ушёл. Пронесло.', 3); }
+    else { tree.humanT -= dt; if (tree.humanT <= 0) { endRun('Лесник заметил дыры и спилил дерево.'); return; } }
+  }
+  // квота
+  if (!G.quotaDone && G.length >= G.quota) { G.quotaDone = true; say('Дерево освоено! Бонус личинок. Можешь грызть дальше.', 4); sfx.win(); }
+
+  // --- смола стекает в ходы ---
+  G.resinCd -= dt;
+  if (G.resinCd <= 0) { G.resinCd = Math.max(.35, 1.6 - treeNum * .12); spreadResin(); }
+
+  updateWoodpecker(dt);
+  updateRivals(dt);
+  // пыль и тосты
+  for (const t of toasts) t.life -= dt; toasts = toasts.filter(t => t.life > 0);
+  for (const p of dust) { p.x += p.vx * dt; p.y += p.vy * dt; p.vy += 30 * dt; p.life -= dt; } dust = dust.filter(p => p.life > 0);
+  shake = Math.max(0, shake - dt * 8); flash = Math.max(0, flash - dt * 2.5);
+}
+
+function bite(px, py, ci) {
+  const dd = dens[ci], t0 = type[ci];
+  const res = carveDisc(px, py, 2.1, T_PLAIN, false);
+  G.energy = Math.min(G.maxE, G.energy - res.cost * (1 + (treeNum - 1) * .02) + res.gain);
+  G.bites++; G.eaten += res.eatN;
+  if (bt.lastBite) { const d = Math.hypot(px - bt.lastBite.x, py - bt.lastBite.y); if (d < 6) G.length += d * .9; }
+  bt.lastBite = { x: px, y: py };
+  if (res.eatN >= 3) sfx.eat(); else sfx.chew(dd);
+  for (let k = 0; k < 4; k++) dust.push({ x: px, y: py, vx: (Math.random() - .5) * 18, vy: -Math.random() * 12, life: .5, c: t0 === RESIN ? '#f0a63e' : '#cfa56a' });
+  if (res.newHole) {
+    const r = Math.hypot(px - CX, py - CY);
+    if (r > R - 5) {
+      const near = holes.some(h => Math.hypot(h.x - px, h.y - py) < 4);
+      if (!near) { holes.push({ x: px, y: py, t: G.t }); tree.attention = Math.min(110, tree.attention + 12); say('Дыра в коре! Это видно снаружи…', 2.5); }
+    }
+  }
+}
+
+// смола: из смоляных клеток рядом с ходами затекает в ход (но не рядом с жуком)
+function spreadResin() {
+  for (let tries = 0; tries < 60; tries++) {
+    const x = 2 + (Math.random() * (GW - 4)) | 0, y = 2 + (Math.random() * (GH - 4)) | 0, i = idx(x, y);
+    if (type[i] !== TUN || tint[i] === T_HOLE) continue;
+    if (Math.hypot(x - bt.x, y - bt.y) < 4) continue;
+    let nb = false;
+    for (const [ox, oy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) if (type[idx(x + ox, y + oy)] === RESIN) { nb = true; break; }
+    if (!nb) continue;
+    type[i] = RESIN; tint[i] = T_RESINED; dens[i] = 1; setBase(i);
+    if (Math.hypot(x - bt.x, y - bt.y) < 22) sfx.resin();
+    return;
+  }
+}
+
+// ===================== ДЯТЕЛ =====================
+function updateWoodpecker(dt) {
+  if (!wp) {
+    G.woodpeckerCd -= dt;
+    if (tree.attention >= 22 && G.woodpeckerCd <= 0 && holes.length) {
+      // ближайшая живая дыра к жуку
+      let best = null, bd = 1e9;
+      for (const h of holes) { if (type[idx(Math.floor(h.x), Math.floor(h.y))] !== TUN) continue; const d = Math.hypot(h.x - bt.x, h.y - bt.y); if (d < bd) { bd = d; best = h; } }
+      if (best) {
+        const a = Math.atan2(CY - best.y, CX - best.x);
+        wp = { h: best, st: 'warn', t: 0, ang: Math.atan2(bt.y - best.y, bt.x - best.x), len: 0, hit: false, a0: a };
+        say('Дятел! Красная линия — туда он долбит. Уйди в сторону!', 3); sfx.warn();
+      } else G.woodpeckerCd = 5;
+    }
+    return;
+  }
+  wp.t += dt;
+  if (wp.st === 'warn') {
+    if (wp.t < 1.3) wp.ang = Math.atan2(bt.y - wp.h.y, bt.x - wp.h.x);   // целится, потом фиксирует
+    if (Math.floor(wp.t * 4) !== Math.floor((wp.t - dt) * 4) && wp.t < 2) sfx.peck();
+    if (wp.t > 2.0) { wp.st = 'drill'; wp.t = 0; }
+  } else if (wp.st === 'drill') {
+    const step = 38 * dt; const n = Math.max(1, Math.ceil(step / .8));
+    for (let k = 0; k < n; k++) {
+      wp.len += step / n;
+      const tx = wp.h.x + Math.cos(wp.ang) * wp.len, ty = wp.h.y + Math.sin(wp.ang) * wp.len;
+      carveDisc(tx, ty, .95, T_SHAFT, true, true);
+      wp.tip = { x: tx, y: ty };
+      if (Math.hypot(tx - bt.x, ty - bt.y) < 2.8 && !wp.hit) {
+        wp.hit = true; hurt(34 * (1 - meta.up.shell * .1)); wp.st = 'leave'; wp.t = 0; break;
+      }
+    }
+    if (Math.floor(wp.t * 14) !== Math.floor((wp.t - dt) * 14)) sfx.peck();
+    if (wp.len > 52 || wp.t > 1.8) { wp.st = 'leave'; wp.t = 0; }
+  } else if (wp.st === 'leave') {
+    if (wp.t > .9) { wp = null; G.woodpeckerCd = Math.max(7, 22 - tree.attention * .12 - treeNum); }
+  }
+}
+
+function hurt(n) {
+  G.energy = Math.max(0, G.energy - n); bt.hurt = .4; flash = 1; shake = 1; sfx.hurt();
+}
+
+// ===================== ВРАЖДЕБНЫЕ КОРОЕДЫ =====================
+function computeFlow() {
+  flow.fill(-1);
+  const sx = Math.floor(bt.x), sy = Math.floor(bt.y);
+  const q = new Int32Array(GW * GH); let h = 0, t = 0;
+  flow[idx(sx, sy)] = 0; q[t++] = idx(sx, sy);
+  while (h < t) {
+    const i = q[h++], x = i % GW, y = (i / GW) | 0, d = flow[i];
+    if (d > 110) continue;
+    for (let oy = -1; oy <= 1; oy++) for (let ox = -1; ox <= 1; ox++) {
+      if (!ox && !oy) continue;
+      const nx = x + ox, ny = y + oy; if (nx < 0 || ny < 0 || nx >= GW || ny >= GH) continue;
+      const ni = idx(nx, ny); if (flow[ni] !== -1 || type[ni] !== TUN) continue;
+      if (ox && oy && (type[idx(x + ox, y)] !== TUN || type[idx(x, y + oy)] !== TUN)) continue;
+      flow[ni] = d + 1; q[t++] = ni;
+    }
+  }
+}
+
+function spawnRival() {
+  const live = holes.filter(h => type[idx(Math.floor(h.x), Math.floor(h.y))] === TUN);
+  if (!live.length) return;
+  const h = live[(Math.random() * live.length) | 0];
+  const big = treeNum >= 2 && Math.random() < .3;
+  // заходит чуть внутрь по ходу
+  let sx = h.x, sy = h.y; const a = Math.atan2(CY - h.y, CX - h.x);
+  for (let k = 0; k < 6; k++) { const tx = h.x + Math.cos(a) * k, ty = h.y + Math.sin(a) * k; if (circleFree(tx, ty, big ? 2.3 : 1.2)) { sx = tx; sy = ty; } }
+  if (!circleFree(sx, sy, big ? 2.3 : 1.1)) { if (!big) { sx = h.x; sy = h.y; } else return; }
+  rivals.push({ x: sx, y: sy, a: a, r: big ? 2.3 : 1.2, big, hp: big ? 3 : 1, host: .35 + Math.random() * .65, head: Math.random() * 6.28, leg: 0, dig: 0, hurt: 0 });
+  say(big ? 'Крупный чужак ломится через стену!' : 'Чужой короед залез в твои ходы!', 3); sfx.warn();
+}
+
+function updateRivals(dt) {
+  G.rivalCd -= dt;
+  const maxR = 1 + Math.floor(treeNum / 2) + Math.floor(tree.attention / 50);
+  if (G.rivalCd <= 0) {
+    G.rivalCd = Math.max(9, 28 - treeNum * 2 - tree.attention * .1);
+    if (rivals.length < maxR && holes.length) spawnRival();
+  }
+  flowT -= dt; if (flowT <= 0) { flowT = .25; computeFlow(); }
+  const sx = Math.floor(bt.x), sy = Math.floor(bt.y), bi = idx(sx, sy);
+  for (const e of rivals) {
+    e.hurt = Math.max(0, e.hurt - dt);
+    const dist = Math.hypot(bt.x - e.x, bt.y - e.y);
+    const ei = idx(clamp(Math.floor(e.x), 0, GW - 1), clamp(Math.floor(e.y), 0, GH - 1));
+    const sight = 14 + 46 * e.host;
+    const pathD = flow[ei];
+    let chase = false;
+    if (e.big) chase = dist < sight + 10;
+    else chase = pathD >= 0 && pathD <= sight;
+    const spd = (e.big ? 6.5 : 9.5) * (dustAt(e.x, e.y) ? .6 : 1);
+    if (chase) {
+      if (e.big) {
+        const a = Math.atan2(bt.y - e.y, bt.x - e.x); e.a = a;
+        const px = e.x + Math.cos(a) * (e.r + 1), py = e.y + Math.sin(a) * (e.r + 1);
+        if (!circleFree(e.x + Math.cos(a) * .6, e.y + Math.sin(a) * .6, e.r)) {
+          const ci = idx(clamp(Math.floor(px), 0, GW - 1), clamp(Math.floor(py), 0, GH - 1));
+          e.dig += dt;
+          const need = .35 + dens[ci] * .8 + (type[ci] === RESIN ? 1.2 : 0);
+          if (type[ci] === WOOD || type[ci] === RESIN) { if (e.dig > need) { e.dig = 0; carveDisc(px, py, e.r + .2, T_DUST, true, true); sfx.chew(.7); } }
+          else e.dig = 0;
+        } else moveEnt(e, Math.cos(a) * spd, Math.sin(a) * spd, dt);
+      } else {
+        // шаг по градиенту потока к жуку
+        let bestI = -1, bestD = pathD;
+        const ex = Math.floor(e.x), ey = Math.floor(e.y);
+        for (let oy = -1; oy <= 1; oy++) for (let ox = -1; ox <= 1; ox++) {
+          const nx = ex + ox, ny = ey + oy; if (nx < 0 || ny < 0 || nx >= GW || ny >= GH) continue;
+          const d = flow[idx(nx, ny)]; if (d >= 0 && d < bestD) { bestD = d; bestI = idx(nx, ny); }
+        }
+        let tx = bt.x, ty = bt.y;
+        if (bestI >= 0 && pathD > 1) { tx = (bestI % GW) + .5; ty = ((bestI / GW) | 0) + .5; }
+        const a = Math.atan2(ty - e.y, tx - e.x); e.a = a;
+        if (!moveEnt(e, Math.cos(a) * spd, Math.sin(a) * spd, dt)) { e.x += (tx - e.x) * .08; e.y += (ty - e.y) * .08; }
+      }
+    } else {
+      // блуждает по ходам
+      e.head += (Math.random() - .5) * 4 * dt;
+      const ok = moveEnt(e, Math.cos(e.head) * spd * .6, Math.sin(e.head) * spd * .6, dt);
+      if (!ok) e.head = Math.random() * 6.28;
+      e.a = e.head;
+    }
+    e.leg += dt * 12;
+    // контакт
+    if (dist < e.r + bt.r + .6) {
+      const dmg = (e.big ? 20 : 12) * (1 - meta.up.shell * .1) * dt;
+      G.energy = Math.max(0, G.energy - dmg); bt.hurt = Math.max(bt.hurt, .15);
+      if (Math.random() < dt * 4) sfx.hurt();
+    }
+  }
+}
+
+function biteRivals() {
+  let hit = false;
+  for (const e of rivals) {
+    if (Math.hypot(e.x - bt.x, e.y - bt.y) < e.r + bt.r + 3) {
+      hit = true; e.hp--; e.hurt = .3; sfx.kill();
+      if (e.hp <= 0) { e.dead = true; G.energy = Math.min(G.maxE, G.energy + (e.big ? 30 : 14)); G.kills++; say(e.big ? 'Чужака съеден! +30 энергии' : 'Чужак съеден! +14 энергии', 2); }
+      for (let k = 0; k < 6; k++) dust.push({ x: e.x, y: e.y, vx: (Math.random() - .5) * 30, vy: (Math.random() - .5) * 30, life: .5, c: '#b04030' });
+    }
+  }
+  rivals = rivals.filter(e => !e.dead);
+  if (!hit) sndNoise(1400, .05, .12, 3);
+}
+
+// ===================== ОТРИСОВКА =====================
+function renderGrid(lightOn, lx, ly) {
+  const d = img.data, decay = 1 - tree.life / 100;
+  for (let y = 0; y < GH; y++) for (let x = 0; x < GW; x++) {
+    const i = y * GW + x, p = i * 4, b = i * 3, t = type[i];
+    let r = base[b], g = base[b + 1], bl = base[b + 2];
+    if (t !== AIR) {
+      let L = 1;
+      if (lightOn) {
+        const ddx = x - lx, ddy = y - ly;
+        L = .42 + .85 * Math.exp(-(ddx * ddx + ddy * ddy) / 420);
+        if (t === TUN && tint[i] === T_HOLE) L = Math.max(L, .85);
+        if (t === RESIN) L = Math.max(L, .38 + L * .5);
+        if (tint[i] === T_RESINED) L = Math.max(L, .55);
+      } else L = .75;
+      r *= L; g *= L; bl *= L;
+      if (decay > .35) { const k = (decay - .35) * .6, m = (r + g + bl) / 3 * .85; r += (m - r) * k; g += (m - g) * k; bl += (m - bl) * k; }
+    }
+    d[p] = r; d[p + 1] = g; d[p + 2] = bl; d[p + 3] = 255;
+  }
+  octx.putImageData(img, 0, 0);
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(off, 0, 0, GW * S, GH * S);
+}
+
+function drawBeetle(x, y, a, r, col, dark, leg, big, hurtF) {
+  ctx.save(); ctx.translate(x * S, y * S); ctx.rotate(a); const k = r * S / 7;
+  ctx.scale(k, k);
+  ctx.strokeStyle = dark; ctx.lineWidth = 1.2;
+  for (let i = -1; i <= 1; i++) for (const s of [-1, 1]) {
+    const ph = Math.sin(leg + i * 1.7 + (s > 0 ? 0 : 3.1)) * 2.2;
+    ctx.beginPath(); ctx.moveTo(i * 3, s * 3); ctx.lineTo(i * 3 + ph, s * 8); ctx.stroke();
+  }
+  ctx.fillStyle = hurtF ? '#ff8a70' : col;
+  ctx.beginPath(); ctx.ellipse(-1.5, 0, 7.5, 4.6, 0, 0, 7); ctx.fill();
+  ctx.fillStyle = dark; ctx.beginPath(); ctx.ellipse(-1.5, 0, 7.5, 4.6, 0, 0, 7); ctx.globalAlpha = .25; ctx.fill(); ctx.globalAlpha = 1;
+  ctx.fillStyle = hurtF ? '#ffb0a0' : col; ctx.beginPath(); ctx.ellipse(-2, 0, 5.8, 3.6, 0, 0, 7); ctx.fill();
+  ctx.strokeStyle = dark; ctx.lineWidth = .7; ctx.beginPath(); ctx.moveTo(-8, 0); ctx.lineTo(3, 0); ctx.stroke();
+  ctx.fillStyle = dark; ctx.beginPath(); ctx.ellipse(6, 0, 3, 3.2, 0, 0, 7); ctx.fill();
+  ctx.strokeStyle = '#e8d8b0'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(8, -1.2); ctx.lineTo(10.5, -2.4); ctx.moveTo(8, 1.2); ctx.lineTo(10.5, 2.4); ctx.stroke();
+  if (big) { ctx.strokeStyle = '#ffd0a0'; ctx.beginPath(); ctx.moveTo(-6, -3); ctx.lineTo(2, -3); ctx.moveTo(-6, 3); ctx.lineTo(2, 3); ctx.stroke(); }
+  ctx.restore();
+}
+
+function drawWorld() {
+  const sh = shake * 3;
+  ctx.save(); if (sh) ctx.translate((Math.random() - .5) * sh, (Math.random() - .5) * sh);
+  renderGrid(true, bt.x, bt.y);
+  // прогресс грызни
+  if (bt.digCell >= 0) {
+    const cx = bt.digCell % GW, cy = (bt.digCell / GW) | 0;
+    ctx.strokeStyle = 'rgba(255,240,180,.9)'; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.arc((cx + .5) * S, (cy + .5) * S, 7 + Math.sin(time * 30) * 1, 0, 7); ctx.stroke();
+  }
+  // линия дятла
+  if (wp) {
+    const x0 = wp.h.x * S, y0 = wp.h.y * S;
+    const L = 52;
+    if (wp.st === 'warn') {
+      const locked = wp.t >= 1.3, pulse = .45 + .4 * Math.sin(time * (locked ? 28 : 10));
+      ctx.strokeStyle = locked ? `rgba(255,60,40,${pulse + .2})` : `rgba(255,170,60,${pulse})`; ctx.lineWidth = locked ? 5 : 3; ctx.setLineDash([8, 8]);
+      ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x0 + Math.cos(wp.ang) * L * S, y0 + Math.sin(wp.ang) * L * S); ctx.stroke(); ctx.setLineDash([]);
+    }
+    // птица снаружи у дыры
+    const bx = x0 + Math.cos(wp.a0 + Math.PI) * 26, by = y0 + Math.sin(wp.a0 + Math.PI) * 26;
+    const peck = wp.st === 'drill' ? Math.sin(time * 70) * 4 : (wp.st === 'warn' ? Math.sin(time * 12) * 2 : 0);
+    ctx.save(); ctx.translate(bx, by); ctx.rotate(wp.a0 + Math.PI + Math.PI);
+    ctx.translate(peck, 0);
+    ctx.fillStyle = '#1a1a1a'; ctx.beginPath(); ctx.ellipse(-8, 0, 15, 9, 0, 0, 7); ctx.fill();
+    ctx.fillStyle = '#c8281e'; ctx.beginPath(); ctx.arc(-4, -2, 5, 0, 7); ctx.fill();
+    ctx.fillStyle = '#f0f0f0'; ctx.beginPath(); ctx.ellipse(-10, 2, 8, 4, 0, 0, 7); ctx.fill();
+    ctx.fillStyle = '#222'; ctx.beginPath(); ctx.arc(5, 0, 6, 0, 7); ctx.fill();
+    ctx.fillStyle = '#444'; ctx.beginPath(); ctx.moveTo(10, -2); ctx.lineTo(24, 0); ctx.lineTo(10, 2); ctx.fill();
+    ctx.restore();
+  }
+  // враги
+  for (const e of rivals) {
+    const d2 = (e.x - bt.x) ** 2 + (e.y - bt.y) ** 2, vis = clamp(.28 + Math.exp(-d2 / 300), 0, 1);
+    ctx.globalAlpha = vis;
+    drawBeetle(e.x, e.y, e.a, e.r, e.big ? '#6a1e1a' : '#7a2a22', '#240a08', e.leg, e.big, e.hurt > 0);
+    ctx.globalAlpha = 1;
+  }
+  // жук
+  drawBeetle(bt.x, bt.y, bt.a, bt.r, ['#8a5a2a', '#3a4c34', '#5a4a7c'][meta.sp], '#1c1208', bt.leg, false, bt.hurt > 0);
+  // частицы
+  for (const p of dust) { ctx.globalAlpha = clamp(p.life * 2, 0, 1); ctx.fillStyle = p.c; ctx.fillRect(p.x * S, p.y * S, 3, 3); }
+  ctx.globalAlpha = 1;
+  ctx.restore();
+  if (flash > 0) { ctx.fillStyle = `rgba(200,20,10,${flash * .35})`; ctx.fillRect(0, 0, cv.width, cv.height); }
+  if (tree.humanT >= 0) {
+    const a = .12 + .1 * Math.sin(time * 8);
+    ctx.fillStyle = `rgba(255,0,0,${a})`; ctx.fillRect(0, 0, cv.width, cv.height);
+  }
+  drawHUD();
+}
+
+function bar(x, y, w, h, v, col, label, val) {
+  ctx.fillStyle = 'rgba(0,0,0,.55)'; ctx.fillRect(x - 2, y - 2, w + 4, h + 4);
+  ctx.fillStyle = col; ctx.fillRect(x, y, w * clamp(v, 0, 1), h);
+  ctx.fillStyle = '#fff'; ctx.font = '11px system-ui, sans-serif'; ctx.textAlign = 'left';
+  ctx.fillText(label + (val ? ' ' + val : ''), x + 3, y + h - 3);
+}
+function drawHUD() {
+  const lowE = G.energy < 22;
+  bar(10, 14, 150, 16, G.energy / G.maxE, lowE && Math.sin(time * 12) > 0 ? '#d23a2a' : '#d6a02a', 'Энергия', Math.ceil(G.energy));
+  bar(10, 42, 150, 16, tree.life / 100, '#5aa03a', 'Дерево', Math.ceil(tree.life) + '%');
+  bar(10, 70, 150, 16, tree.attention / 100, tree.attention > 70 ? '#e0402a' : '#c07830', 'Внимание снаружи', '');
+  ctx.font = '12px system-ui, sans-serif'; ctx.fillStyle = '#d8d0b0'; ctx.textAlign = 'left';
+  const frac = tunCount / woodCount;
+  ctx.fillText('Ходов ' + (frac * 100).toFixed(1) + '% дерева', 10, 104);
+  ctx.fillText('(больше → усыхает быстрее)', 10, 119);
+  ctx.textAlign = 'right';
+  ctx.font = 'bold 16px system-ui, sans-serif'; ctx.fillStyle = '#ffe9a8';
+  ctx.fillText('Длина ходов: ' + Math.floor(G.length) + ' см', 950, 26);
+  ctx.font = '12px system-ui, sans-serif'; ctx.fillStyle = '#d8d0b0';
+  ctx.fillText('Дерево №' + treeNum + ' · цель ' + G.quota + ' см' + (G.quotaDone ? ' ✓' : ''), 950, 46);
+  ctx.fillText(sp().name, 950, 64);
+  ctx.fillText('Съедено врагов: ' + G.kills, 950, 82);
+  ctx.fillStyle = '#9a9478'; ctx.font = '11px system-ui, sans-serif';
+  ctx.fillText('WASD/стрелки/мышь — ползти и грызть · Пробел — кусать врага · P — пауза · M — звук', 950, 628);
+  if (tree.humanT >= 0) {
+    ctx.textAlign = 'center'; ctx.font = 'bold 28px system-ui, sans-serif'; ctx.fillStyle = '#ff6a50';
+    ctx.fillText('ЛЕСНИК: ' + Math.ceil(tree.humanT) + ' с', 480, 40);
+  }
+  ctx.textAlign = 'center'; ctx.font = '14px system-ui, sans-serif';
+  toasts.forEach((t, i) => {
+    ctx.globalAlpha = clamp(t.life, 0, 1); const y = 84 + i * 24;
+    const w = ctx.measureText(t.t).width + 20;
+    ctx.fillStyle = 'rgba(0,0,0,.6)'; ctx.fillRect(480 - w / 2, y - 15, w, 21);
+    ctx.fillStyle = '#fff2c8'; ctx.fillText(t.t, 480, y);
+  });
+  ctx.globalAlpha = 1;
+}
+
+// ===================== ЭКРАНЫ =====================
+function panel(y, h) { ctx.fillStyle = 'rgba(8,10,6,.74)'; ctx.fillRect(130, y, 700, h); ctx.strokeStyle = '#6a5a30'; ctx.strokeRect(130.5, y + .5, 699, h - 1); }
+function txt(s, x, y, size, col, al, bold) { ctx.font = (bold ? 'bold ' : '') + size + 'px system-ui, sans-serif'; ctx.fillStyle = col; ctx.textAlign = al || 'center'; ctx.fillText(s, x, y); }
+
+let titleTree = false;
+function drawTitle() {
+  if (!titleTree) { genTree(meta.tree); titleTree = true; tree = { life: 100, attention: 0, humanT: -1 }; }
+  renderGrid(false, 0, 0);
+  panel(26, 588);
+  txt('KORoED', 480, 86, 54, '#ffd98a', 'center', true);
+  txt('«Ходы» — ты короед. Проточи лучшие ходы, пока дерево не усохло.', 480, 114, 15, '#d8d0b0');
+  const lines = [
+    'Грызи ходы свободно. Энергия уходит на грызню — её даёт съедобная древесина.',
+    'Какая древесина съедобна, не видно: узнаёшь, только съев (ход зеленеет). Несъедобная даёт муку — она замедляет.',
+    'Смола глубоко в сердцевине заливает ходы. Дыры в коре зовут дятла, чужих короедов и лесника.',
+    'Дятел целится красной линией — отползи в сторону. На глубине >50 клеток от дыры он не достанет.',
+    'Чужаки идут по твоим ходам: кусай их (Пробел) и ешь. Чем больше ходов — тем быстрее гибнет дерево.',
+  ];
+  lines.forEach((l, i) => txt(l, 480, 148 + i * 20, 13, '#c8c0a0'));
+  // жуки
+  txt('Жук (← →):', 480, 270, 14, '#9a9478');
+  SPECIES.forEach((s, i) => {
+    const x = 270 + i * 210, ok = s.need <= meta.total, sel = i === meta.sp;
+    ctx.fillStyle = sel ? 'rgba(120,90,30,.7)' : 'rgba(40,36,20,.7)'; ctx.fillRect(x - 96, 280, 192, 78);
+    ctx.strokeStyle = sel ? '#ffd98a' : '#4a4228'; ctx.strokeRect(x - 95.5, 280.5, 191, 77);
+    txt(s.name, x, 302, 14, ok ? '#fff' : '#777', 'center', true);
+    if (ok) wrap(s.desc, x, 322, 180, 11, '#b8b090');
+    else txt('нужно ходов всего: ' + s.need + ' см', x, 332, 11, '#a06050');
+  });
+  // апгрейды
+  txt('Прокачка (клавиши 1–4) · Личинок: ' + meta.larvae, 480, 392, 14, '#ffd98a', 'center', true);
+  UPG.forEach((u, i) => {
+    const x = 195 + i * 190, c = upCost(u.key), can = meta.larvae >= c;
+    ctx.fillStyle = 'rgba(40,36,20,.7)'; ctx.fillRect(x - 88, 402, 176, 62);
+    ctx.strokeStyle = can ? '#8ab050' : '#4a4228'; ctx.strokeRect(x - 87.5, 402.5, 175, 61);
+    txt((i + 1) + '. ' + u.name + ' ур.' + meta.up[u.key], x, 422, 13, '#fff', 'center', true);
+    txt(u.desc, x, 438, 10, '#a8a088');
+    txt('цена: ' + c + ' личинок', x, 455, 11, can ? '#b8e070' : '#806050');
+  });
+  txt('Дерево №' + meta.tree + ' · рекорд ' + meta.best + ' см · всего пройдено ' + meta.total + ' см', 480, 500, 14, '#d8d0b0');
+  const pulse = .6 + .4 * Math.sin(time * 4);
+  ctx.globalAlpha = pulse; txt('Enter / клик — начать', 480, 550, 26, '#ffe9a8', 'center', true); ctx.globalAlpha = 1;
+  txt('Shift+N — стереть прогресс · M — звук', 480, 590, 11, '#7a7458');
+}
+function wrap(s, x, y, w, size, col) {
+  ctx.font = size + 'px system-ui, sans-serif'; const words = s.split(' '); let line = '', yy = y;
+  for (const wd of words) { const t = line ? line + ' ' + wd : wd; if (ctx.measureText(t).width > w && line) { txt(line, x, yy, size, col); line = wd; yy += size + 3; } else line = t; }
+  txt(line, x, yy, size, col);
+}
+function drawOver() {
+  renderGrid(false, 0, 0);
+  ctx.fillStyle = 'rgba(0,0,0,.35)'; ctx.fillRect(0, 0, 960, 640);
+  panel(140, 330);
+  txt(over.quota ? 'Дерево освоено!' : 'Конец забега', 480, 195, 36, over.quota ? '#b8e070' : '#ff9a70', 'center', true);
+  txt(over.why, 480, 228, 15, '#e0d8b8');
+  txt('Длина ходов: ' + over.len + ' см (цель ' + G.quota + ')', 480, 280, 22, '#ffe9a8', 'center', true);
+  txt('Заработано личинок: +' + over.larv + (over.quota ? ' (включая бонус за дерево)' : ''), 480, 316, 16, '#d8d0b0');
+  txt('Врагов съедено: ' + G.kills + ' · Укусов: ' + G.bites, 480, 342, 14, '#a8a088');
+  if (over.unlocked > 0) txt('Открыт новый жук: ' + SPECIES[over.unlocked].name + '!', 480, 380, 18, '#9ae0ff', 'center', true);
+  txt(over.quota ? 'Следующее дерево будет выше и злее.' : 'Это же дерево №' + meta.tree + ' — попробуй иначе: меньше дыр, больше съедобной вены.', 480, 410, 13, '#b8b090');
+  ctx.globalAlpha = .6 + .4 * Math.sin(time * 4); txt('Enter — в колыбельку', 480, 450, 22, '#ffe9a8', 'center', true); ctx.globalAlpha = 1;
+}
+
+// ===================== ВВОД / ЦИКЛ =====================
+addEventListener('keydown', e => {
+  audioInit();
+  if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) e.preventDefault();
+  keys[e.code] = true;
+  if (e.code === 'KeyM') { meta.sound = !meta.sound; save(); }
+  if (state === 'title') {
+    if (e.code === 'Enter') startRun();
+    if (e.code === 'ArrowLeft') pick(-1);
+    if (e.code === 'ArrowRight') pick(1);
+    if (/^Digit[1-4]$/.test(e.code)) buy(+e.code.slice(5) - 1);
+    if (e.code === 'KeyN' && e.shiftKey) { meta = { tree: 1, larvae: 0, total: 0, best: 0, sp: 0, up: { jaws: 0, legs: 0, gut: 0, shell: 0 }, sound: true }; save(); titleTree = false; }
+  } else if (state === 'play') {
+    if (e.code === 'KeyP' || e.code === 'Escape') state = 'pause';
+    if (e.code === 'KeyR') { G.quotaDone = false; endRun('Ты бросил это дерево.'); }
+  } else if (state === 'pause') {
+    if (e.code === 'KeyP' || e.code === 'Escape' || e.code === 'Enter') state = 'play';
+  } else if (state === 'over') {
+    if (e.code === 'Enter') { state = 'title'; titleTree = false; }
+  }
+});
+addEventListener('keyup', e => { keys[e.code] = false; });
+function pick(d) { let n = meta.sp; for (let k = 0; k < 3; k++) { n = (n + d + SPECIES.length) % SPECIES.length; if (SPECIES[n].need <= meta.total) break; } meta.sp = n; save(); }
+function buy(i) { const u = UPG[i]; if (!u) return; const c = upCost(u.key); if (meta.larvae >= c) { meta.larvae -= c; meta.up[u.key]++; save(); sfx.eat(); } }
+function ptrPos(e) { const r = cv.getBoundingClientRect(); return { x: (e.clientX - r.left) * cv.width / r.width, y: (e.clientY - r.top) * cv.height / r.height }; }
+cv.addEventListener('pointerdown', e => {
+  audioInit(); const p = ptrPos(e);
+  if (state === 'title') {
+    if (p.y > 270 && p.y < 360) { const i = Math.round((p.x - 270) / 210); if (i >= 0 && i < 3 && SPECIES[i].need <= meta.total) { meta.sp = i; save(); return; } }
+    if (p.y > 400 && p.y < 466) { const i = Math.round((p.x - 195) / 190); if (i >= 0 && i < 4) { buy(i); return; } }
+    startRun();
+  } else if (state === 'over') { state = 'title'; titleTree = false; }
+  else if (state === 'pause') state = 'play';
+  else if (state === 'play') { ptr = p; if (e.button === 2) keys.Space = true; }
+});
+cv.addEventListener('pointermove', e => { if (ptr) ptr = ptrPos(e); });
+addEventListener('pointerup', () => { ptr = null; keys.Space = false; });
+cv.addEventListener('contextmenu', e => e.preventDefault());
+document.addEventListener('visibilitychange', () => { if (document.hidden && state === 'play') state = 'pause'; });
+
+let last = performance.now();
+function frame(now) {
+  const dt = Math.min(.05, (now - last) / 1000); last = now; time += state === 'play' ? 0 : dt;
+  ctx.clearRect(0, 0, 960, 640);
+  if (state === 'play') { update(dt); if (state === 'play') drawWorld(); else if (state === 'over') drawOver(); }
+  else if (state === 'pause') { drawWorld(); ctx.fillStyle = 'rgba(0,0,0,.6)'; ctx.fillRect(0, 0, 960, 640); txt('ПАУЗА', 480, 320, 48, '#ffe9a8', 'center', true); txt('P / Enter — продолжить', 480, 360, 16, '#d8d0b0'); }
+  else if (state === 'title') drawTitle();
+  else if (state === 'over') drawOver();
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+// для автотестов
+window.__koroed = { update: dt => update(dt), get s() { return { state, bt, G, tree, rivals, wp, holes, type, meta }; }, startRun, bite, keys };
+</script>
+</body>
+</html>
