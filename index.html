@@ -10,7 +10,7 @@
 </style>
 </head>
 <body>
-<canvas id="cv" width="960" height="640"></canvas>
+<canvas id="cv" width="1920" height="1280"></canvas>
 <script>
 'use strict';
 /* =====================================================================
@@ -24,6 +24,8 @@
 const GW = 240, GH = 160, S = 4;           // клеток, пикселей на клетку
 const CX = GW / 2, CY = GH / 2, R = 76;    // центр и радиус ствола (в клетках)
 const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
+const K = 2, FONT = '"Segoe UI", "Helvetica Neue", Roboto, Arial, sans-serif';
+function ft(s, x, y) { ctx.lineJoin = 'round'; ctx.lineWidth = 3.5; ctx.strokeStyle = 'rgba(8,6,2,.85)'; ctx.strokeText(s, x, y); ctx.fillText(s, x, y); }
 const off = document.createElement('canvas'); off.width = GW; off.height = GH;
 const octx = off.getContext('2d'), img = octx.createImageData(GW, GH);
 
@@ -596,104 +598,104 @@ function drawWorld() {
 }
 
 function bar(x, y, w, h, v, col, label, val) {
-  ctx.fillStyle = 'rgba(0,0,0,.55)'; ctx.fillRect(x - 2, y - 2, w + 4, h + 4);
+  ctx.fillStyle = 'rgba(0,0,0,.65)'; ctx.fillRect(x - 2, y - 2, w + 4, h + 4);
   ctx.fillStyle = col; ctx.fillRect(x, y, w * clamp(v, 0, 1), h);
-  ctx.fillStyle = '#fff'; ctx.font = '11px system-ui, sans-serif'; ctx.textAlign = 'left';
-  ctx.fillText(label + (val ? ' ' + val : ''), x + 3, y + h - 3);
+  ctx.fillStyle = '#fff'; ctx.font = 'bold 14px ' + FONT; ctx.textAlign = 'left';
+  ft(label + (val ? ' ' + val : ''), x + 5, y + h - 5);
 }
 function drawHUD() {
   const lowE = G.energy < 22;
-  bar(10, 14, 150, 16, G.energy / G.maxE, lowE && Math.sin(time * 12) > 0 ? '#d23a2a' : '#d6a02a', 'Энергия', Math.ceil(G.energy));
-  bar(10, 42, 150, 16, tree.life / 100, '#5aa03a', 'Дерево', Math.ceil(tree.life) + '%');
-  bar(10, 70, 150, 16, tree.attention / 100, tree.attention > 70 ? '#e0402a' : '#c07830', 'Внимание снаружи', '');
-  ctx.font = '12px system-ui, sans-serif'; ctx.fillStyle = '#d8d0b0'; ctx.textAlign = 'left';
+  bar(10, 12, 170, 22, G.energy / G.maxE, lowE && Math.sin(time * 12) > 0 ? '#d23a2a' : '#c8941e', 'Энергия', Math.ceil(G.energy));
+  bar(10, 44, 170, 22, tree.life / 100, '#4f9a34', 'Дерево', Math.ceil(tree.life) + '%');
+  bar(10, 76, 170, 22, tree.attention / 100, tree.attention > 70 ? '#e0402a' : '#b86c28', 'Внимание снаружи', '');
+  ctx.font = '15px ' + FONT; ctx.fillStyle = '#efe6c4'; ctx.textAlign = 'left';
   const frac = tunCount / woodCount;
-  ctx.fillText('Ходов ' + (frac * 100).toFixed(1) + '% дерева', 10, 104);
-  ctx.fillText('(больше → усыхает быстрее)', 10, 119);
+  ft('Ходов: ' + (frac * 100).toFixed(1) + '% дерева', 10, 126);
+  ctx.font = '13px ' + FONT; ctx.fillStyle = '#c8bf9c';
+  ft('больше ходов — дерево', 10, 146); ft('усыхает быстрее', 10, 163);
   ctx.textAlign = 'right';
-  ctx.font = 'bold 16px system-ui, sans-serif'; ctx.fillStyle = '#ffe9a8';
-  ctx.fillText('Длина ходов: ' + Math.floor(G.length) + ' см', 950, 26);
-  ctx.font = '12px system-ui, sans-serif'; ctx.fillStyle = '#d8d0b0';
-  ctx.fillText('Дерево №' + treeNum + ' · цель ' + G.quota + ' см' + (G.quotaDone ? ' ✓' : ''), 950, 46);
-  ctx.fillText(sp().name, 950, 64);
-  ctx.fillText('Съедено врагов: ' + G.kills, 950, 82);
-  ctx.fillStyle = '#9a9478'; ctx.font = '11px system-ui, sans-serif';
-  ctx.fillText('WASD/стрелки/мышь — ползти и грызть · Пробел — кусать врага · P — пауза · M — звук', 950, 628);
+  ctx.font = 'bold 22px ' + FONT; ctx.fillStyle = '#ffe9a8';
+  ft('Длина ходов: ' + Math.floor(G.length) + ' см', 950, 32);
+  ctx.font = '15px ' + FONT; ctx.fillStyle = '#efe6c4';
+  ft('Дерево №' + treeNum + ' · цель ' + G.quota + ' см' + (G.quotaDone ? ' ✓' : ''), 950, 58);
+  ft(sp().name, 950, 80);
+  ft('Съедено врагов: ' + G.kills, 950, 102);
+  ctx.fillStyle = '#cfc7a4'; ctx.font = '13px ' + FONT;
+  ft('WASD / стрелки / мышь — ползти и грызть · Пробел — кусать · P — пауза · M — звук', 950, 628);
   if (tree.humanT >= 0) {
-    ctx.textAlign = 'center'; ctx.font = 'bold 28px system-ui, sans-serif'; ctx.fillStyle = '#ff6a50';
-    ctx.fillText('ЛЕСНИК: ' + Math.ceil(tree.humanT) + ' с', 480, 40);
+    ctx.textAlign = 'center'; ctx.font = 'bold 32px ' + FONT; ctx.fillStyle = '#ff7a60';
+    ft('ЛЕСНИК: ' + Math.ceil(tree.humanT) + ' с', 480, 44);
   }
-  ctx.textAlign = 'center'; ctx.font = '14px system-ui, sans-serif';
+  ctx.textAlign = 'center'; ctx.font = '17px ' + FONT;
   toasts.forEach((t, i) => {
-    ctx.globalAlpha = clamp(t.life, 0, 1); const y = 84 + i * 24;
-    const w = ctx.measureText(t.t).width + 20;
-    ctx.fillStyle = 'rgba(0,0,0,.6)'; ctx.fillRect(480 - w / 2, y - 15, w, 21);
-    ctx.fillStyle = '#fff2c8'; ctx.fillText(t.t, 480, y);
+    ctx.globalAlpha = clamp(t.life, 0, 1); const y = 92 + i * 30;
+    const w = ctx.measureText(t.t).width + 28;
+    ctx.fillStyle = 'rgba(0,0,0,.7)'; ctx.fillRect(480 - w / 2, y - 20, w, 28);
+    ctx.fillStyle = '#fff2c8'; ft(t.t, 480, y);
   });
   ctx.globalAlpha = 1;
 }
 
 // ===================== ЭКРАНЫ =====================
-function panel(y, h) { ctx.fillStyle = 'rgba(8,10,6,.74)'; ctx.fillRect(130, y, 700, h); ctx.strokeStyle = '#6a5a30'; ctx.strokeRect(130.5, y + .5, 699, h - 1); }
-function txt(s, x, y, size, col, al, bold) { ctx.font = (bold ? 'bold ' : '') + size + 'px system-ui, sans-serif'; ctx.fillStyle = col; ctx.textAlign = al || 'center'; ctx.fillText(s, x, y); }
+function panel(y, h) { ctx.fillStyle = 'rgba(8,10,6,.8)'; ctx.fillRect(30, y, 900, h); ctx.strokeStyle = '#6a5a30'; ctx.lineWidth = 1.5; ctx.strokeRect(30, y, 900, h); }
+function txt(s, x, y, size, col, al, bold) { ctx.font = (bold ? 'bold ' : '') + size + 'px ' + FONT; ctx.fillStyle = col; ctx.textAlign = al || 'center'; ft(s, x, y); }
 
 let titleTree = false;
 function drawTitle() {
   if (!titleTree) { genTree(meta.tree); titleTree = true; tree = { life: 100, attention: 0, humanT: -1 }; }
   renderGrid(false, 0, 0);
-  panel(26, 588);
-  txt('KORoED', 480, 86, 54, '#ffd98a', 'center', true);
-  txt('«Ходы» — ты короед. Проточи лучшие ходы, пока дерево не усохло.', 480, 114, 15, '#d8d0b0');
+  panel(14, 612);
+  txt('KORoED', 480, 78, 56, '#ffd98a', 'center', true);
+  txt('«Ходы» — ты короед. Проточи лучшие ходы, пока дерево не усохло.', 480, 108, 18, '#efe6c4');
   const lines = [
-    'Грызи ходы свободно. Энергия уходит на грызню — её даёт съедобная древесина.',
-    'Какая древесина съедобна, не видно: узнаёшь, только съев (ход зеленеет). Несъедобная даёт муку — она замедляет.',
-    'Смола глубоко в сердцевине заливает ходы. Дыры в коре зовут дятла, чужих короедов и лесника.',
-    'Дятел целится красной линией — отползи в сторону. На глубине >50 клеток от дыры он не достанет.',
-    'Чужаки идут по твоим ходам: кусай их (Пробел) и ешь. Чем больше ходов — тем быстрее гибнет дерево.',
+    'Грызи ходы свободно. Энергию даёт съедобная древесина.',
+    'Какая съедобна — не видно: узнаёшь, только съев (ход зеленеет).',
+    'Несъедобная даёт муку, она замедляет. Смола в сердцевине заливает ходы.',
+    'Дыры в коре зовут дятла, чужих короедов и лесника.',
+    'Дятел целится красной линией — отползи в сторону.',
+    'Чужаков кусай (Пробел) и ешь. Больше ходов — дерево гибнет быстрее.',
   ];
-  lines.forEach((l, i) => txt(l, 480, 148 + i * 20, 13, '#c8c0a0'));
-  // жуки
-  txt('Жук (← →):', 480, 270, 14, '#9a9478');
+  lines.forEach((l, i) => txt(l, 480, 146 + i * 24, 16, '#ddd4b2'));
+  txt('Жук (← →)', 480, 306, 16, '#b8b090');
   SPECIES.forEach((s, i) => {
-    const x = 270 + i * 210, ok = s.need <= meta.total, sel = i === meta.sp;
-    ctx.fillStyle = sel ? 'rgba(120,90,30,.7)' : 'rgba(40,36,20,.7)'; ctx.fillRect(x - 96, 280, 192, 78);
-    ctx.strokeStyle = sel ? '#ffd98a' : '#4a4228'; ctx.strokeRect(x - 95.5, 280.5, 191, 77);
-    txt(s.name, x, 302, 14, ok ? '#fff' : '#777', 'center', true);
-    if (ok) wrap(s.desc, x, 322, 180, 11, '#b8b090');
-    else txt('нужно ходов всего: ' + s.need + ' см', x, 332, 11, '#a06050');
+    const x = 250 + i * 230, ok = s.need <= meta.total, sel = i === meta.sp;
+    ctx.fillStyle = sel ? 'rgba(130,98,34,.8)' : 'rgba(44,40,22,.8)'; ctx.fillRect(x - 108, 316, 216, 92);
+    ctx.strokeStyle = sel ? '#ffd98a' : '#5a5030'; ctx.lineWidth = 1.5; ctx.strokeRect(x - 108, 316, 216, 92);
+    txt(s.name, x, 340, 16, ok ? '#fff' : '#8a8570', 'center', true);
+    if (ok) wrap(s.desc, x, 362, 200, 13, '#d0c8a4');
+    else txt('нужно ходов всего: ' + s.need + ' см', x, 372, 13, '#e0907a');
   });
-  // апгрейды
-  txt('Прокачка (клавиши 1–4) · Личинок: ' + meta.larvae, 480, 392, 14, '#ffd98a', 'center', true);
+  txt('Прокачка (клавиши 1–4) · Личинок: ' + meta.larvae, 480, 442, 17, '#ffd98a', 'center', true);
   UPG.forEach((u, i) => {
-    const x = 195 + i * 190, c = upCost(u.key), can = meta.larvae >= c;
-    ctx.fillStyle = 'rgba(40,36,20,.7)'; ctx.fillRect(x - 88, 402, 176, 62);
-    ctx.strokeStyle = can ? '#8ab050' : '#4a4228'; ctx.strokeRect(x - 87.5, 402.5, 175, 61);
-    txt((i + 1) + '. ' + u.name + ' ур.' + meta.up[u.key], x, 422, 13, '#fff', 'center', true);
-    txt(u.desc, x, 438, 10, '#a8a088');
-    txt('цена: ' + c + ' личинок', x, 455, 11, can ? '#b8e070' : '#806050');
+    const x = 150 + i * 220, c = upCost(u.key), can = meta.larvae >= c;
+    ctx.fillStyle = 'rgba(44,40,22,.8)'; ctx.fillRect(x - 104, 452, 208, 74);
+    ctx.strokeStyle = can ? '#8ab050' : '#5a5030'; ctx.lineWidth = 1.5; ctx.strokeRect(x - 104, 452, 208, 74);
+    txt((i + 1) + '. ' + u.name + ' ур.' + meta.up[u.key], x, 474, 15, '#fff', 'center', true);
+    wrap(u.desc, x, 494, 200, 12, '#cfc7a4');
+    txt('цена: ' + c + ' личинок', x, 518, 13, can ? '#c4ec7c' : '#d29a80');
   });
-  txt('Дерево №' + meta.tree + ' · рекорд ' + meta.best + ' см · всего пройдено ' + meta.total + ' см', 480, 500, 14, '#d8d0b0');
-  const pulse = .6 + .4 * Math.sin(time * 4);
-  ctx.globalAlpha = pulse; txt('Enter / клик — начать', 480, 550, 26, '#ffe9a8', 'center', true); ctx.globalAlpha = 1;
-  txt('Shift+N — стереть прогресс · M — звук', 480, 590, 11, '#7a7458');
+  txt('Дерево №' + meta.tree + ' · рекорд ' + meta.best + ' см · всего пройдено ' + meta.total + ' см', 480, 554, 16, '#efe6c4');
+  const pulse = .7 + .3 * Math.sin(time * 4);
+  ctx.globalAlpha = pulse; txt('Enter / клик — начать', 480, 594, 28, '#ffe9a8', 'center', true); ctx.globalAlpha = 1;
+  txt('Shift+N — стереть прогресс · M — звук', 840, 618, 12, '#a8a07c', 'right');
 }
 function wrap(s, x, y, w, size, col) {
-  ctx.font = size + 'px system-ui, sans-serif'; const words = s.split(' '); let line = '', yy = y;
+  ctx.font = size + 'px ' + FONT; const words = s.split(' '); let line = '', yy = y;
   for (const wd of words) { const t = line ? line + ' ' + wd : wd; if (ctx.measureText(t).width > w && line) { txt(line, x, yy, size, col); line = wd; yy += size + 3; } else line = t; }
   txt(line, x, yy, size, col);
 }
 function drawOver() {
   renderGrid(false, 0, 0);
   ctx.fillStyle = 'rgba(0,0,0,.35)'; ctx.fillRect(0, 0, 960, 640);
-  panel(140, 330);
-  txt(over.quota ? 'Дерево освоено!' : 'Конец забега', 480, 195, 36, over.quota ? '#b8e070' : '#ff9a70', 'center', true);
-  txt(over.why, 480, 228, 15, '#e0d8b8');
-  txt('Длина ходов: ' + over.len + ' см (цель ' + G.quota + ')', 480, 280, 22, '#ffe9a8', 'center', true);
-  txt('Заработано личинок: +' + over.larv + (over.quota ? ' (включая бонус за дерево)' : ''), 480, 316, 16, '#d8d0b0');
-  txt('Врагов съедено: ' + G.kills + ' · Укусов: ' + G.bites, 480, 342, 14, '#a8a088');
-  if (over.unlocked > 0) txt('Открыт новый жук: ' + SPECIES[over.unlocked].name + '!', 480, 380, 18, '#9ae0ff', 'center', true);
-  txt(over.quota ? 'Следующее дерево будет выше и злее.' : 'Это же дерево №' + meta.tree + ' — попробуй иначе: меньше дыр, больше съедобной вены.', 480, 410, 13, '#b8b090');
-  ctx.globalAlpha = .6 + .4 * Math.sin(time * 4); txt('Enter — в колыбельку', 480, 450, 22, '#ffe9a8', 'center', true); ctx.globalAlpha = 1;
+  ctx.fillStyle = 'rgba(8,10,6,.85)'; ctx.fillRect(140, 100, 680, 410); ctx.strokeStyle = '#6a5a30'; ctx.lineWidth = 1.5; ctx.strokeRect(140, 100, 680, 410);
+  txt(over.quota ? 'Дерево освоено!' : 'Конец забега', 480, 160, 42, over.quota ? '#c4ec7c' : '#ffa880', 'center', true);
+  txt(over.why, 480, 198, 18, '#efe6c4');
+  txt('Длина ходов: ' + over.len + ' см (цель ' + G.quota + ')', 480, 256, 26, '#ffe9a8', 'center', true);
+  txt('Заработано личинок: +' + over.larv + (over.quota ? ' (с бонусом за дерево)' : ''), 480, 296, 19, '#efe6c4');
+  txt('Врагов съедено: ' + G.kills + ' · Укусов: ' + G.bites, 480, 326, 16, '#c8bf9c');
+  if (over.unlocked > 0) txt('Открыт новый жук: ' + SPECIES[over.unlocked].name + '!', 480, 372, 21, '#9ae0ff', 'center', true);
+  wrap(over.quota ? 'Следующее дерево будет выше и злее.' : 'Это же дерево №' + meta.tree + ' — попробуй иначе: меньше дыр, больше съедобной вены.', 480, 410, 620, 16, '#d0c8a4');
+  ctx.globalAlpha = .7 + .3 * Math.sin(time * 4); txt('Enter — в колыбельку', 480, 475, 26, '#ffe9a8', 'center', true); ctx.globalAlpha = 1;
 }
 
 // ===================== ВВОД / ЦИКЛ =====================
@@ -720,12 +722,12 @@ addEventListener('keydown', e => {
 addEventListener('keyup', e => { keys[e.code] = false; });
 function pick(d) { let n = meta.sp; for (let k = 0; k < 3; k++) { n = (n + d + SPECIES.length) % SPECIES.length; if (SPECIES[n].need <= meta.total) break; } meta.sp = n; save(); }
 function buy(i) { const u = UPG[i]; if (!u) return; const c = upCost(u.key); if (meta.larvae >= c) { meta.larvae -= c; meta.up[u.key]++; save(); sfx.eat(); } }
-function ptrPos(e) { const r = cv.getBoundingClientRect(); return { x: (e.clientX - r.left) * cv.width / r.width, y: (e.clientY - r.top) * cv.height / r.height }; }
+function ptrPos(e) { const r = cv.getBoundingClientRect(); return { x: (e.clientX - r.left) * 960 / r.width, y: (e.clientY - r.top) * 640 / r.height }; }
 cv.addEventListener('pointerdown', e => {
   audioInit(); const p = ptrPos(e);
   if (state === 'title') {
-    if (p.y > 270 && p.y < 360) { const i = Math.round((p.x - 270) / 210); if (i >= 0 && i < 3 && SPECIES[i].need <= meta.total) { meta.sp = i; save(); return; } }
-    if (p.y > 400 && p.y < 466) { const i = Math.round((p.x - 195) / 190); if (i >= 0 && i < 4) { buy(i); return; } }
+    if (p.y > 316 && p.y < 408) { const i = Math.round((p.x - 250) / 230); if (i >= 0 && i < 3 && SPECIES[i].need <= meta.total) { meta.sp = i; save(); return; } }
+    if (p.y > 452 && p.y < 526) { const i = Math.round((p.x - 150) / 220); if (i >= 0 && i < 4) { buy(i); return; } }
     startRun();
   } else if (state === 'over') { state = 'title'; titleTree = false; }
   else if (state === 'pause') state = 'play';
@@ -739,13 +741,14 @@ document.addEventListener('visibilitychange', () => { if (document.hidden && sta
 let last = performance.now();
 function frame(now) {
   const dt = Math.min(.05, (now - last) / 1000); last = now; time += state === 'play' ? 0 : dt;
-  ctx.clearRect(0, 0, 960, 640);
+  ctx.setTransform(K, 0, 0, K, 0, 0); ctx.clearRect(0, 0, 960, 640);
   if (state === 'play') { update(dt); if (state === 'play') drawWorld(); else if (state === 'over') drawOver(); }
   else if (state === 'pause') { drawWorld(); ctx.fillStyle = 'rgba(0,0,0,.6)'; ctx.fillRect(0, 0, 960, 640); txt('ПАУЗА', 480, 320, 48, '#ffe9a8', 'center', true); txt('P / Enter — продолжить', 480, 360, 16, '#d8d0b0'); }
   else if (state === 'title') drawTitle();
   else if (state === 'over') drawOver();
   requestAnimationFrame(frame);
 }
+if (location.hash === '#play') { startRun(); for (let i = 0; i < 600; i++) { keys.ArrowDown = true; update(1/60); } keys.ArrowDown = false; }
 requestAnimationFrame(frame);
 // для автотестов
 window.__koroed = { update: dt => update(dt), get s() { return { state, bt, G, tree, rivals, wp, holes, type, meta }; }, startRun, bite, keys };
