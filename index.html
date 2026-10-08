@@ -249,6 +249,47 @@ const TREES = [
     } },
 ];
 
+// ---------- деревья №4–50: собираются по шаблону из пород и регионов документа ----------
+const KINDS = [
+  ['Сосна крымская', 'Европа, Крым'], ['Кедр корейский', 'Азия, Корея'], ['Ель сибирская', 'Россия, Сибирь'], ['Пихта кавказская', 'Россия, Кавказ'],
+  ['Лиственница даурская', 'Азия, Даурия'], ['Тис ягодный', 'Европа'], ['Можжевельник казацкий', 'Азия, Тянь-Шань'], ['Туя западная', 'Северная Америка'],
+  ['Сосна веймутова', 'Северная Америка'], ['Ель колючая', 'Северная Америка, Скалистые горы'], ['Пихта белая', 'Европа, Альпы'], ['Кипарис', 'Европа, Средиземноморье'],
+  ['Секвойя', 'Северная Америка, Калифорния'], ['Каури', 'Австралия и Океания'], ['Араукария', 'Южная Америка'], ['Сосна горная', 'Европа, Карпаты'],
+  ['Ель аянская', 'Россия, Дальний Восток'], ['Пихта сибирская', 'Россия, Алтай'], ['Лиственница сибирская', 'Россия, Сибирь'], ['Можжевельник туркменский', 'Азия, Копетдаг'],
+  ['Кедр европейский', 'Европа, Альпы'], ['Ель восточная', 'Азия, Кавказ'], ['Тис дальневосточный', 'Азия, Япония'], ['Метасеквойя', 'Азия, Китай'],
+  ['Клён', 'Европа'], ['Бук', 'Европа'], ['Ясень', 'Европа'], ['Эвкалипт', 'Австралия'], ['Берёза', 'Россия'], ['Пихта цельнолистная', 'Азия, Маньчжурия'],
+];
+function makeTree(n) {
+  const rng = mulberry32(n * 7919), [name, region] = KINDS[(n - 4) % KINDS.length], k = (n - 4) / 46, lv = 1 + Math.floor(k * 4);
+  const layers = n < 8 ? 1 : n < 16 ? 2 : 3, L1 = layers - 1;
+  const soft = Math.max(.08, .5 - k * .4), dense = .2 + k * .3, med = Math.max(.1, 1 - soft - dense), mix = [soft, med, dense, .03 + k * .14, n < 10 ? 0 : .03 + k * .09];
+  const en = (w, m, st, pt, nh, fr) => { const o = {}; if (w) o.weak = w; if (m) o.mid = m; if (st) o.strong = st; if (pt) o.patrol = pt; if (nh) o.nahl = nh; if (fr) o.friend = fr; return o; };
+  const pk = (thr, extra) => ({ thr, dmg: Math.min(.6, .35 + k * .25), ring: true, ...extra });
+  const twoA = rng() < .6, twoB = n > 9, nEnt = 1 + Math.floor(rng() * 3), subs = {};
+  subs.A1 = { name: 'Корень', mw: 14 + lv * 2, mh: 9 + lv, dir: 'down', mix, ents: Array.from({ length: nEnt }, () => ({})), exits: [{ to: twoA ? 'A2' : 'B1', en: 0 }], larvae: 1, hidden: n > 12 ? 1 : 0, coins: 10, nyash: [pick(['speed', 'slow', 'coin'], rng)], en: en(1 + lv, n > 6 ? 1 : 0, 0, n > 10 ? 1 : 0, n > 14 ? 2 : 0), secret: 1, chest: 'rand' };
+  if (twoA) subs.A2 = { name: 'Глубокий корень', mw: 14 + lv * 2, mh: 10 + lv, dir: 'down', mix, ents: [{}], exits: [{ to: 'B1', en: 0 }], larvae: 1, hidden: 1, coins: 12, nyash: ['dmg'], en: en(lv, 1 + lv, 0, 0, n > 14 ? 1 : 0, 1), friendT: 25, chest: 'rand' };
+  subs.B1 = { name: 'Нижний ствол', mw: 11 + lv, mh: 20 + lv * 3, dir: 'up', layers, mix, ents: [{ l: 0 }], exits: twoB ? [{ to: 'B2', en: 0, l: 0 }, { to: 'C1', en: 0, l: L1 }] : [{ to: 'C1', en: 0, l: L1 }], larvae: 1, coins: 12, nyash: ['hp', 'slow'], en: en(2, 1 + lv, n > 12 ? 1 : 0, n > 8 ? 1 : 0, n > 10 ? 2 + lv : 0), secret: 1, peck: pk(Math.max(1.8, 3 - k), { layers: [0] }), chest: 'rand' };
+  if (twoB) subs.B2 = { name: 'Верхний ствол', mw: 11 + lv, mh: 16 + lv * 2, dir: 'up', layers, mix, ents: [{ l: 0 }], exits: [{ to: 'C1', en: 1, l: 0 }, { to: 'Cs', en: 0, l: L1, secret: true }], larvae: 1, coins: 10, nyash: ['regen'], en: en(1, 2 + lv, 1 + (n > 20 ? 1 : 0), 1, n > 12 ? 3 : 0), peck: pk(Math.max(1.6, 2.5 - k), { layers: [0], top: .6 }) };
+  else subs.B1.exits.push({ to: 'Cs', en: 0, l: L1, secret: true });
+  subs.C1 = { name: 'Ветвь', mw: 12 + lv * 2, mh: 6, dir: 'right', mix: [soft + .1, med, Math.max(.1, dense - .1), 0, 0], ents: twoB ? [{}, {}] : [{}], exits: [{ to: 'FINISH' }], larvae: 5 - (2 + (twoA ? 1 : 0) + (twoB ? 1 : 0)), coins: 10, nyash: ['coin'], en: en(0, lv), peck: pk(Math.max(1.5, 3 - k * 1.5)) };
+  subs.Cs = { name: 'Тайная ветвь', mw: 10 + lv, mh: 5, dir: 'right', mix: [Math.min(.9, soft + .2), med, .1, 0, 0], ents: [{}], exits: [{ to: 'FINISH' }], larvae: 0, coins: 16, en: en(0, lv), peck: { every: Math.max(3, 5 - lv * .5), dmg: .3, all: true }, chest: 'premium' };
+  const feats = [layers > 1 ? layers + ' слоя ствола' : 'один слой ствола', mix[4] ? 'камень' : '', 'смоляные карманы', n > 10 ? 'неуязвимые патрули' : 'патрули', n > 14 ? 'нахлебники' : ''].filter(Boolean);
+  return { name, region, diff: Math.min(5, 2 + Math.floor(n / 9)), time: Math.round(360 + n * 9), need: 4, signSp: [1 + (n % 4)], start: 'A1', gen: true,
+    text: 'Дерево №' + n + ': ' + feats.join(', ') + '. Дятел злее, древесина плотнее.', entLabels: nEnt > 1 ? ['Левый корень', 'Средний корень', 'Правый корень'].slice(0, nEnt) : null, subs };
+}
+for (let n = 4; n <= 50; n++) TREES.push(makeTree(n));
+
+// ---------- бонусное дерево дня (по документу: каждый день — своя часть тела) ----------
+const PART_DAY = [5, 0, 1, 2, 3, 4, 5];  // вс..сб → индекс части тела
+const todayStr = (o) => { const d = new Date(Date.now() + (o || 0)); return d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate(); };
+function bonusTree() {
+  const pi = PART_DAY[new Date().getDay()];
+  return { name: 'Бонусное дерево дня', region: 'Сегодня: знаки «' + PARTS[pi].n + '»', diff: 1, time: 150, need: 0, signSp: [1], start: 'X1', bonus: true, part: pi,
+    text: 'Раз в день. Мягкая трухлявая древесина, много монет и три сундука со знаками части тела дня. Вход — 2 энергии.',
+    subs: { X1: { name: 'Кладовая', mw: 14, mh: 9, dir: 'right', mix: [1, 0, 0, 0, 0], ents: [{}], exits: [{ to: 'FINISH' }], larvae: 0, coins: 45, nyash: ['coin', 'speed'], en: { weak: 2 }, chest: 'part', chests: 3 } } };
+}
+const treeOf = i => i === 'bonus' ? bonusTree() : TREES[i];
+
 const ACH = [
   { id: 'nocut', n: 'Дерево не срублено', d: 'Пройти дерево, не вызвав срубку', stat: 'nocut', tiers: [[1, 's', 1], [10, 's', 2], [25, 's', 5], [50, 'g', 1]] },
   { id: 'dodge', n: 'Ускользнуть от дятла', d: 'Уйти из зоны дятла до удара', stat: 'dodges', tiers: [[1, 's', 1], [10, 's', 2], [25, 's', 5], [50, 'g', 1]] },
@@ -262,11 +303,16 @@ const ACH = [
 const SAVE = 'lyctus_v1';
 const defMeta = () => ({ coins: 30, silver: 0, signs: [0, 0, 0, 0, 0], parts: [0, 0, 0, 0, 0, 0], own: [true, false, false, false, false], sp: 0,
   lv: [[1, 1, 1, 1, 1, 1], [1, 1, 1, 1, 1, 1], [1, 1, 1, 1, 1, 1], [1, 1, 1, 1, 1, 1], [1, 1, 1, 1, 1, 1]],
-  energy: 9, eT: Date.now(), unlocked: 3, best: [0, 0, 0], stats: { nocut: 0, dodges: 0, duels: 0, secrets: 0, nodmg: 0, five: 0 }, claimed: {}, sound: true });
+  energy: 9, eT: Date.now(), unlocked: 3, best: [], tasks: {}, login: { last: '', streak: 0 }, bonusDay: '', onl: { day: '', sec: 0, got: 0 }, tutDone: false, stats: { nocut: 0, dodges: 0, duels: 0, secrets: 0, nodmg: 0, five: 0 }, claimed: {}, sound: true });
 let meta = defMeta();
 try { const s = localStorage.getItem(SAVE); if (s) meta = Object.assign(defMeta(), JSON.parse(s)); } catch (e) {}
 const save = () => { try { localStorage.setItem(SAVE, JSON.stringify(meta)); } catch (e) {} };
 const ENERGY_MAX = 9, ENERGY_MIN = 20;
+function dailyGift() {
+  const t = todayStr(); if (meta.login.last === t) return;
+  meta.login.streak = meta.login.last === todayStr(-864e5) ? meta.login.streak % 7 + 1 : 1; meta.login.last = t;
+  const g = GIFTS[meta.login.streak - 1]; g.f(); gift = { day: meta.login.streak, n: g.n }; save();
+}
 function tickEnergy() {
   const step = ENERGY_MIN * 60000, now = Date.now();
   if (meta.energy >= ENERGY_MAX) { meta.energy = ENERGY_MAX; meta.eT = now; return; }
@@ -275,6 +321,14 @@ function tickEnergy() {
 }
 const lvl = (k) => meta.lv[meta.sp][PARTS.findIndex(p => p.k === k)];
 const partCost = lv => [3, 5, 6, 7, 8, 9, 10][lv - 1];
+// ежедневный подарок за вход (7 дней подряд, потом по кругу)
+const GIFTS = [
+  { n: '30 монет', f: () => { meta.coins += 30; } }, { n: 'знак части тела', f: () => { meta.parts[(Math.random() * 6) | 0]++; } },
+  { n: '60 монет', f: () => { meta.coins += 60; } }, { n: '+3 энергии', f: () => { meta.energy = Math.min(ENERGY_MAX, meta.energy + 3); } },
+  { n: '2 знака частей тела', f: () => { meta.parts[(Math.random() * 6) | 0]++; meta.parts[(Math.random() * 6) | 0]++; } },
+  { n: '100 монет', f: () => { meta.coins += 100; } }, { n: '2 серебряных знака короеда', f: () => { meta.silver += 2; } },
+];
+let gift = null;
 
 // ===================== ГЕНЕРАЦИЯ ПОДУРОВНЕЙ =====================
 const P = 7, B = 3;           // шаг клетки лабиринта, толщина коры
@@ -379,7 +433,7 @@ function genSub(tree, id, seed) {
   for (let i = 0; i < (cfg.larvae || 0); i++) addItem('larva', place(anyLayer(), i < (cfg.hidden || 0), 3), {});
   for (let i = 0; i < (cfg.secret || 0); i++) addItem('secret', place(anyLayer(), rng() < .6, 2.6), {});
   (cfg.nyash || []).forEach(kind => addItem('nyash', place(anyLayer(), false, 2.6), { kind }));
-  if (cfg.chest) addItem('chest', place(anyLayer(), rng() < .4, 3), { mode: cfg.chest });
+  if (cfg.chest) for (let i = 0; i < (cfg.chests || 1); i++) addItem('chest', place(anyLayer(), cfg.chests ? false : rng() < .4, 3), { mode: cfg.chest });
   // монеты россыпью в самой древесине (находишь, когда прогрызаешься)
   for (let i = 0; i < (cfg.coins || 0); i++) {
     const li = anyLayer(), c = anyFree(li); if (!c) break; const p = cc(c[0], c[1]);
@@ -424,7 +478,16 @@ function genSub(tree, id, seed) {
 }
 
 // ===================== СОСТОЯНИЕ ИГРЫ =====================
-let state = 'title', time = 0, selTree = 0, selEnt = 0, selSp = 0;
+let shopBack = 'title', state = 'title', time = 0, selTree = 0, selEnt = 0, selSp = 0, treePage = 0, selBoost = {};
+const BOOSTS = [{ k: 'spd', n: 'Ускорение по ходам +20%', c: 25 }, { k: 'time', n: '+60 с ко времени дерева', c: 30 }, { k: 'hp', n: 'Панцирь: +30% здоровья', c: 30 }];
+const boostCost = () => BOOSTS.reduce((a, b) => a + (selBoost[b.k] ? b.c : 0), 0);
+const SHOP = [
+  { n: '+3 энергии', d: 'сразу', c: 40, ok: () => meta.energy < ENERGY_MAX, f: () => { meta.energy = Math.min(ENERGY_MAX, meta.energy + 3); } },
+  { n: 'Полная энергия', d: 'до 9 из 9', c: 90, ok: () => meta.energy < ENERGY_MAX, f: () => { meta.energy = ENERGY_MAX; } },
+  { n: 'Знак части тела', d: 'случайная часть', c: 50, f: () => { const pi = (Math.random() * 6) | 0; meta.parts[pi]++; say('Получен знак «' + PARTS[pi].n + '»', 2.5); } },
+  { n: 'Набор: 3 знака частей тела', d: 'случайные части', c: 130, f: () => { const got = []; for (let i = 0; i < 3; i++) { const pi = (Math.random() * 6) | 0; meta.parts[pi]++; got.push(PARTS[pi].n); } say('Получены знаки: ' + got.join(', '), 3); } },
+  { n: 'Серебряный знак короеда', d: 'подходит для открытия любого короеда', c: 220, f: () => { meta.silver++; } },
+];
 let G = null, keys = {}, ptr = null, camX = 0, camY = 0, toasts = [], shake = 0, flash = 0, fade = 0, resultInfo = null, parts = [], pops = [];
 let flow = null, flowT = 0, flowLayer = -1, mmT = 0, mmKey = '', mapMode = 0, touchMode = false, joy = null;
 
@@ -451,11 +514,16 @@ function say(t, d) { toasts.push({ t, life: d || 3 }); if (toasts.length > 3) to
 
 function startRun(ti, entIdx) {
   tickEnergy();
-  if (meta.energy < 1) return false;
-  meta.energy--; if (meta.energy < ENERGY_MAX && Date.now() - meta.eT > ENERGY_MIN * 60000) meta.eT = Date.now(); save();
-  const tree = TREES[ti], sp = SPECIES[meta.sp];
-  const hpMax = 100 * sp.m.hp * (1 + .12 * (lvl('back') - 1));
-  G = { ti, tree, seed: (Math.random() * 1e9) | 0, subs: {}, sub: null, layer: 0, time: tree.time, larvae: 0, coins: 0, kills: 0, dodges: 0, dmgTaken: 0, secrets: 0, signs: [], cut: false,
+  const tree = treeOf(ti), cost = tree.bonus ? 2 : 1, bc = boostCost();
+  if (meta.energy < cost) return false;
+  if (meta.coins < bc) { say('Не хватает монет на плюшки', 2); return false; }
+  meta.coins -= bc; const bo = selBoost; selBoost = {};
+  meta.energy -= cost; if (meta.energy < ENERGY_MAX && Date.now() - meta.eT > ENERGY_MIN * 60000) meta.eT = Date.now();
+  if (meta.onl.day !== todayStr()) meta.onl = { day: todayStr(), sec: 0, got: 0 };
+  save();
+  const sp = SPECIES[meta.sp];
+  const hpMax = 100 * sp.m.hp * (1 + .12 * (lvl('back') - 1)) * (bo.hp ? 1.3 : 1);
+  G = { ti, tree, boostSpd: bo.spd ? 1.2 : 1, seed: (Math.random() * 1e9) | 0, subs: {}, sub: null, layer: 0, time: tree.time + (bo.time ? 60 : 0), larvae: 0, coins: 0, kills: 0, dodges: 0, dmgTaken: 0, secrets: 0, signs: [], cut: false,
     hp: hpMax, hpMax, dmgBase: 12 * (1 + .15 * (lvl('ant') - 1)), buffs: {}, boost: 0, boostCd: 0, slow: 0, slowCd: 0, tutI: 0, t: 0, over: false,
     p: { x: 0, y: 0, sx: 0, sy: 0, a: 0, r: 1.5, leg: 0, digT: 0, digTile: -1, hurt: 0, gnaw: 0 }, pecker: { t: 0, st: 'idle', cd: 0 } };
   G.tut = ti === 0 && !meta.tutDone ? { i: 0, t: 0, x0: 0, y0: 0 } : null;
@@ -540,13 +608,15 @@ function update(dt) {
   G.boost = Math.max(0, G.boost - dt); G.boostCd = Math.max(0, G.boostCd - dt); G.slow = Math.max(0, G.slow - dt); G.slowCd = Math.max(0, G.slowCd - dt);
   if (hasBuff('regen')) G.hp = Math.min(G.hpMax, G.hp + G.hpMax * .05 * dt);
   p.hurt = Math.max(0, p.hurt - dt);
+  meta.onl.sec += dt;
+  if (meta.onl.got < 5 && meta.onl.sec >= [600, 1800, 3600, 6000, 9000][meta.onl.got]) { meta.onl.got++; const pi = (Math.random() * 6) | 0; meta.parts[pi]++; say('Бонус за время в игре: знак «' + PARTS[pi].n + '»', 4); save(); }
   // время дерева
   const rate = (hasBuff('slow') ? .3 : 1) * (G.slow > 0 ? .25 : 1);
   G.time -= dt * rate;
   if (G.time <= 0) { G.time = 0; G.cut = true; finish(false, 'Дерево срубили — время вышло!'); return; }
   // движение и грызня
   const [dx, dy] = inputDir();
-  const spd = 14 * sm.speed * (1 + .07 * (lvl('legs') - 1)) * (G.boost > 0 ? 1.9 : 1) * (hasBuff('speed') ? 1.5 : 1);
+  const spd = 14 * G.boostSpd * sm.speed * (1 + .07 * (lvl('legs') - 1)) * (G.boost > 0 ? 1.9 : 1) * (hasBuff('speed') ? 1.5 : 1);
   let moving = false;
   if (dx || dy) {
     p.a = Math.atan2(dy, dx);
@@ -651,6 +721,7 @@ function openChest(it) {
   const addSp = n => { for (let i = 0; i < n; i++) { const sp = pick(tr.signSp, Math.random); meta.signs[sp]++; G.signs.push({ t: 'sp', i: sp }); } };
   if (mode === 'sign') { addSp(1); const c = 50 + (Math.random() * 30 | 0); G.coins += c; say('Сундук: знак короеда и ' + c + ' монет!', 4); return; }
   if (mode === 'premium') { addSp(2); const c = 100 + (Math.random() * 50 | 0); G.coins += c; say('Сундук: 2 знака короеда и ' + c + ' монет!', 4); return; }
+  if (mode === 'part') { meta.parts[tr.part] += 2; G.signs.push({ t: 'pt', i: tr.part }, { t: 'pt', i: tr.part }); const c = 20 + (Math.random() * 15 | 0); G.coins += c; say('Сундук: 2 знака «' + PARTS[tr.part].n + '» и ' + c + ' монет', 4); return; }
   if (mode === 'double') { const c = 60 + (Math.random() * 30 | 0); G.coins += c; say('Двойной сундук: ' + c + ' монет!', 4); return; }
   const r = Math.random();
   if (r < .6) { const pi = (Math.random() * 6) | 0; meta.parts[pi]++; G.signs.push({ t: 'pt', i: pi }); say('Сундук: знак «' + PARTS[pi].n + '»', 4); }
@@ -755,15 +826,20 @@ function finish(win, why) {
   const score = win ? G.larvae * 200 + G.coins + bonusT * 3 + G.kills * 30 + G.secrets * 150 : G.larvae * 60 + G.coins + G.kills * 10;
   let reward = Math.floor(G.coins + (win ? score / 20 : 0)); if (!win) reward = Math.floor(reward / 2);
   meta.coins += reward;
-  if (win) {
+  const tasks = [];
+  if (win && tree.bonus) meta.bonusDay = todayStr();
+  if (win && !tree.bonus) {
     if (G.ti === 0) meta.tutDone = true;
-    meta.best[G.ti] = Math.max(meta.best[G.ti], score); if (G.ti + 1 >= meta.unlocked && G.ti + 1 < TREES.length) meta.unlocked = G.ti + 2;
+    meta.best[G.ti] = Math.max(meta.best[G.ti] || 0, score); if (G.ti + 1 >= meta.unlocked && G.ti + 1 < TREES.length) meta.unlocked = G.ti + 2;
+    const tk = meta.tasks[G.ti] || 0;
+    if (G.larvae >= tree.need + 1 && !(tk & 1)) { meta.tasks[G.ti] = (meta.tasks[G.ti] || 0) | 1; meta.coins += 40; meta.silver++; tasks.push('Доп. задание «спасти всех 5 личинок»: +40 монет, +1 серебряный знак'); }
+    if (G.secrets > 0 && !(tk & 2)) { meta.tasks[G.ti] = (meta.tasks[G.ti] || 0) | 2; meta.coins += 30; tasks.push('Доп. задание «найти секретный знак»: +30 монет'); }
     if (!G.cut) meta.stats.nocut++;
     if (G.dmgTaken < .5) meta.stats.nodmg++;
     if (G.larvae >= tree.need + 1) meta.stats.five++;
   }
   const got = checkAch(); save();
-  resultInfo = { win, why, score, reward, bonusT, got, signs: G.signs.slice(), stats: { larvae: G.larvae, coins: G.coins, kills: G.kills, dodges: G.dodges, secrets: G.secrets } };
+  resultInfo = { win, why, score, reward, bonusT, got, tasks, signs: G.signs.slice(), stats: { larvae: G.larvae, coins: G.coins, kills: G.kills, dodges: G.dodges, secrets: G.secrets } };
   if (win) { sfx.win(); G.flyT = 0; toasts = []; state = 'flyout'; } else { sfx.lose(); state = 'result'; }
 }
 function checkAch() {
@@ -1103,46 +1179,83 @@ function drawTitle() {
   btn('Играть', 330, 350, 300, 56, () => { state = 'trees'; }, { key: 'Enter', size: 24 });
   btn('Короеды и прокачка', 330, 418, 300, 46, () => { state = 'beetles'; selSp = meta.sp; }, { size: 18 });
   btn('Достижения', 330, 474, 300, 46, () => { state = 'ach'; }, { size: 18 });
+  btn('Магазин', 660, 418, 200, 46, () => { shopBack = state; state = 'shop'; }, { size: 16 });
   if (document.fullscreenEnabled && !document.fullscreenElement) btn('⛶ На весь экран', 660, 474, 200, 46, () => { document.documentElement.requestFullscreen().catch(() => {}); try { screen.orientation.lock('landscape').catch(() => {}); } catch (er) {} }, { size: 14 });
   energyLine(560);
   txt('Звук: ' + (meta.sound ? 'вкл' : 'выкл') + ' (M) · Shift+N — стереть прогресс', 480, 596, 13, '#8a8468');
+  if (gift) { // окно ежедневного подарка поверх титула
+    btns = []; ctx.fillStyle = 'rgba(0,0,0,.6)'; ctx.fillRect(0, 0, 960, 640); panel(200, 150, 560, 330, .95);
+    txt('Ежедневный подарок', 480, 200, 30, '#ffd98a', 'center', true); txt('Заходи каждый день — подарки растут', 480, 228, 15, '#cfc7a4');
+    for (let d = 1; d <= 7; d++) { const x = 230 + (d - 1) * 72, cur = d === gift.day, past = d < gift.day; rrect(x, 250, 64, 64, 10); ctx.fillStyle = cur ? 'rgba(180,140,50,.9)' : past ? 'rgba(80,100,50,.8)' : 'rgba(40,36,20,.85)'; ctx.fill(); ctx.strokeStyle = cur ? '#ffe9a8' : '#5a5030'; ctx.lineWidth = cur ? 2.5 : 1.2; ctx.stroke();
+      txt('День ' + d, x + 32, 276, 13, '#fff', 'center', true); txt(past ? '✓' : d === 7 ? '★' : '$', x + 32, 302, 18, past ? '#b8e070' : '#ffd860', 'center', true); }
+    txt('Сегодня, день ' + gift.day + ': ' + gift.n, 480, 360, 20, '#ffffff', 'center', true);
+    btn('Забрать', 380, 400, 200, 52, () => { gift = null; }, { key: 'Enter', size: 20 });
+  }
+}
+function drawShop() {
+  bg(); panel(80, 24, 800, 592, .82);
+  txt('Магазин', 480, 76, 34, '#ffd98a', 'center', true); energyLine(108);
+  SHOP.forEach((it, i) => {
+    const y = 132 + i * 74, can = meta.coins >= it.c && (!it.ok || it.ok());
+    rrect(110, y, 740, 64, 12); ctx.fillStyle = 'rgba(40,36,20,.85)'; ctx.fill(); ctx.strokeStyle = '#5a5030'; ctx.lineWidth = 1.2; ctx.stroke();
+    txt(it.n, 134, y + 28, 18, '#fff', 'left', true); txt(it.d, 134, y + 50, 13, '#b8b090', 'left');
+    btn(it.c + ' монет', 690, y + 12, 144, 40, () => { meta.coins -= it.c; it.f(); save(); sfx.coin(); }, { disabled: !can, size: 16 });
+  });
+  txt('Покупка за реальные деньги (донат) не подключена: в документе она ещё не проработана.', 480, 524, 13, '#8a8468');
+  btn('Назад', 100, 556, 140, 44, () => { state = shopBack || 'title'; }, { key: 'Escape' });
 }
 function drawTrees() {
   bg(); panel(30, 20, 900, 600, .74);
-  txt('Выбери дерево', 480, 68, 34, '#ffd98a', 'center', true); energyLine(98);
-  TREES.forEach((t, i) => {
-    const x = 50 + i * 290, lock = i >= meta.unlocked;
-    ctx.fillStyle = 'rgba(40,36,20,.85)'; ctx.fillRect(x, 124, 270, 330); ctx.strokeStyle = lock ? '#3a3622' : '#7a6a3a'; ctx.lineWidth = 2; ctx.strokeRect(x, 124, 270, 330);
-    txt('№' + (i + 1), x + 135, 160, 16, '#b8b090'); txt(t.name, x + 135, 190, 20, lock ? '#8a8570' : '#fff', 'center', true);
-    txt(t.region, x + 135, 214, 13, '#b8b090'); txt('Сложность: ' + '★'.repeat(t.diff) + '☆'.repeat(5 - t.diff), x + 135, 240, 15, '#ffd060');
-    wrap(t.text, x + 135, 272, 240, 14, '#d0c8a4', 'center', 19);
-    txt('Время на дерево: ' + fmtT(t.time), x + 135, 378, 14, '#efe6c4'); txt('Рекорд: ' + meta.best[i], x + 135, 400, 14, '#c8bf9c');
-    btn(lock ? 'Закрыто' : 'Выбрать', x + 45, 410, 180, 36, () => { selTree = i; selEnt = 0; selSp = meta.sp; state = 'pre'; }, { disabled: lock, size: 16 });
-  });
-  txt('Деревья №4–50 и новые регионы — в разработке', 480, 490, 15, '#a8a07c');
-  btn('Назад', 40, 560, 140, 44, () => { state = 'title'; }, { key: 'Escape' });
+  txt('Выбери дерево', 480, 64, 32, '#ffd98a', 'center', true); energyLine(94);
+  const pages = Math.ceil(TREES.length / 3); treePage = clamp(treePage, 0, pages - 1);
+  for (let j = 0; j < 3; j++) {
+    const i = treePage * 3 + j; if (i >= TREES.length) break;
+    const t = TREES[i], x = 92 + j * 264, lock = i >= meta.unlocked, done = (meta.best[i] || 0) > 0, tk = meta.tasks[i] || 0;
+    rrect(x, 116, 248, 350, 14); ctx.fillStyle = 'rgba(40,36,20,.88)'; ctx.fill(); ctx.strokeStyle = lock ? '#3a3622' : done ? '#8ab050' : '#7a6a3a'; ctx.lineWidth = 2; ctx.stroke();
+    txt('№' + (i + 1) + (done ? '  ✓' : ''), x + 124, 146, 15, done ? '#b8e070' : '#b8b090', 'center', true); txt(t.name, x + 124, 176, 19, lock ? '#8a8570' : '#fff', 'center', true);
+    txt(t.region, x + 124, 198, 12, '#b8b090'); txt('★'.repeat(t.diff) + '☆'.repeat(5 - t.diff), x + 124, 222, 16, '#ffd060');
+    wrap(t.text, x + 124, 250, 222, 13, '#d0c8a4', 'center', 18);
+    txt('Время: ' + fmtT(t.time) + ' · Рекорд: ' + (meta.best[i] || 0), x + 124, 372, 13, '#efe6c4');
+    txt((tk & 1 ? '☑' : '☐') + ' все 5 личинок   ' + (tk & 2 ? '☑' : '☐') + ' секретный знак', x + 124, 394, 12, '#c8bf9c');
+    btn(lock ? 'Закрыто' : 'Выбрать', x + 34, 414, 180, 38, () => { selTree = i; selEnt = 0; selSp = meta.sp; selBoost = {}; state = 'pre'; }, { disabled: lock, size: 16 });
+  }
+  btn('◀', 40, 250, 44, 80, () => { treePage--; }, { disabled: treePage <= 0, key: 'ArrowLeft', size: 20 });
+  btn('▶', 876, 250, 44, 80, () => { treePage++; }, { disabled: treePage >= pages - 1, key: 'ArrowRight', size: 20 });
+  txt('Деревья ' + (treePage * 3 + 1) + '–' + Math.min(TREES.length, treePage * 3 + 3) + ' из ' + TREES.length + ' · открыто: ' + Math.min(meta.unlocked, TREES.length), 480, 492, 14, '#a8a07c');
+  const bonusDone = meta.bonusDay === todayStr();
+  btn(bonusDone ? 'Бонусное дерево — завтра' : '★ Бонусное дерево дня', 330, 512, 300, 42, () => { selTree = 'bonus'; selEnt = 0; selBoost = {}; state = 'pre'; }, { disabled: bonusDone, size: 16 });
+  btn('Назад', 40, 562, 140, 44, () => { state = 'title'; }, { key: 'Escape' });
+  btn('Магазин', 780, 562, 140, 44, () => { shopBack = state; state = 'shop'; });
 }
 function drawPre() {
-  const t = TREES[selTree], st = t.subs[t.start];
-  bg(); panel(30, 20, 900, 600, .78);
-  txt(t.name, 480, 66, 32, '#ffd98a', 'center', true); txt(t.region + ' · ' + '★'.repeat(t.diff), 480, 92, 15, '#c8bf9c');
-  wrap(t.text, 480, 122, 760, 16, '#e0d8b8', 'center', 22);
-  txt('Твой короед', 480, 180, 16, '#b8b090');
+  const t = treeOf(selTree), st = t.subs[t.start], cost = t.bonus ? 2 : 1;
+  bg(); panel(30, 16, 900, 608, .8);
+  txt(t.name, 480, 58, 30, '#ffd98a', 'center', true); txt(t.region + ' · ' + '★'.repeat(t.diff), 480, 82, 14, '#c8bf9c');
+  wrap(t.text, 480, 106, 780, 15, '#e0d8b8', 'center', 20);
   const sp = SPECIES[meta.sp];
-  btn('◀', 200, 192, 50, 50, () => cycleSp(-1)); btn('▶', 710, 192, 50, 50, () => cycleSp(1));
-  txt(sp.n, 480, 222, 26, '#fff', 'center', true); wrap(sp.d, 480, 250, 420, 14, '#cfc7a4', 'center', 18);
-  txt('Здоровье ' + Math.round(100 * sp.m.hp * (1 + .12 * (lvl('back') - 1))) + ' · Урон ' + (12 * (1 + .15 * (lvl('ant') - 1))).toFixed(1) + ' · Скорость ×' + (sp.m.speed * (1 + .07 * (lvl('legs') - 1))).toFixed(2), 480, 296, 15, '#efe6c4');
+  btn('◀', 230, 146, 44, 44, () => cycleSp(-1)); btn('▶', 686, 146, 44, 44, () => cycleSp(1));
+  txt('Короед: ' + sp.n, 480, 170, 22, '#fff', 'center', true);
+  txt('Здоровье ' + Math.round(100 * sp.m.hp * (1 + .12 * (lvl('back') - 1))) + ' · Урон ' + (12 * (1 + .15 * (lvl('ant') - 1))).toFixed(1) + ' · Скорость ×' + (sp.m.speed * (1 + .07 * (lvl('legs') - 1))).toFixed(2), 480, 194, 14, '#cfc7a4');
   const ne = st.ents.length;
   if (ne > 1) {
-    txt('Выбери вход в дерево', 480, 336, 16, '#b8b090');
-    const w = Math.min(280, (840 - (ne - 1) * 10) / ne);
-    for (let i = 0; i < ne; i++) btn((i + 1) + '. ' + (t.entLabels ? t.entLabels[i] : 'Вход ' + (i + 1)), 60 + i * (w + 10) + (840 - ne * w - (ne - 1) * 10) / 2, 348, w, 56, () => { selEnt = i; }, { sel: selEnt === i, size: 13 });
-  } else txt('Вход в дерево: ' + st.name, 480, 360, 16, '#b8b090');
-  energyLine(450);
-  btn('В дерево! (−1 энергии)', 300, 470, 360, 60, () => { if (!startRun(selTree, selEnt)) say('Нет энергии!', 2); }, { key: 'Enter', size: 22, disabled: meta.energy < 1 });
-  if (meta.energy < 1) txt('Энергия закончилась — подожди восстановления', 480, 548, 15, '#ff9a80');
-  btn('Назад', 40, 560, 140, 44, () => { state = 'trees'; }, { key: 'Escape' });
-  btn('Прокачка', 760, 560, 160, 44, () => { state = 'beetles'; selSp = meta.sp; });
+    txt('Вход в дерево', 480, 226, 14, '#b8b090');
+    const w = Math.min(260, (840 - (ne - 1) * 10) / ne);
+    for (let i = 0; i < ne; i++) btn((i + 1) + '. ' + (t.entLabels ? t.entLabels[i] : 'Вход ' + (i + 1)), 60 + i * (w + 10) + (840 - ne * w - (ne - 1) * 10) / 2, 236, w, 44, () => { selEnt = i; }, { sel: selEnt === i, size: 13 });
+  } else txt('Вход: ' + st.name, 480, 256, 15, '#b8b090');
+  if (!t.bonus) {
+    const tk = meta.tasks[selTree] || 0;
+    txt('Доп. задания (награда за первое выполнение):', 480, 312, 14, '#b8b090');
+    txt((tk & 1 ? '☑' : '☐') + ' Спасти всех 5 личинок — 40 монет и серебряный знак     ' + (tk & 2 ? '☑' : '☐') + ' Найти секретный знак — 30 монет', 480, 334, 14, '#efe6c4');
+  }
+  txt('Плюшки на этот забег (по желанию):', 480, 372, 14, '#b8b090');
+  BOOSTS.forEach((b, i) => btn((selBoost[b.k] ? '✓ ' : '') + b.n, 70 + i * 280, 382, 270, 44, () => { selBoost[b.k] = !selBoost[b.k]; }, { sel: !!selBoost[b.k], size: 13, sub: b.c + ' монет' }));
+  energyLine(452);
+  const bc = boostCost(), can = meta.energy >= cost && meta.coins >= bc;
+  btn('В дерево! (−' + cost + ' энергии' + (bc ? ', −' + bc + ' монет' : '') + ')', 270, 470, 420, 60, () => { if (!startRun(selTree, selEnt)) say('Не хватает энергии или монет', 2); }, { key: 'Enter', size: 20, disabled: !can });
+  if (meta.energy < cost) txt('Энергия закончилась — подожди восстановления или загляни в магазин', 480, 548, 14, '#ff9a80');
+  btn('Назад', 40, 566, 140, 44, () => { state = 'trees'; }, { key: 'Escape' });
+  btn('Прокачка', 600, 566, 150, 44, () => { state = 'beetles'; selSp = meta.sp; });
+  btn('Магазин', 770, 566, 150, 44, () => { shopBack = state; state = 'shop'; });
 }
 function cycleSp(d) { let n = meta.sp; for (let k = 0; k < 5; k++) { n = (n + d + 5) % 5; if (meta.own[n]) break; } meta.sp = n; save(); }
 const spendFor = i => meta.signs[i] + meta.silver;
@@ -1189,12 +1302,12 @@ function drawResult() {
   const r = resultInfo; renderPreview(); ctx.fillStyle = 'rgba(0,0,0,.55)'; ctx.fillRect(0, 0, 960, 640);
   panel(120, 40, 720, 560, .9);
   txt(r.win ? 'Дерево пройдено!' : 'Дерево не пройдено', 480, 98, 40, r.win ? '#c4ec7c' : '#ffa880', 'center', true); txt(r.why, 480, 130, 17, '#efe6c4');
-  const rows = [['Личинок спасено', r.stats.larvae + ' / ' + (G.tree.need + 1)], ['Монет собрано', r.stats.coins], ['Врагов побеждено', r.stats.kills], ['Ускользнул от дятла', r.stats.dodges + ' раз'], ['Секретных знаков', r.stats.secrets], ['Остаток времени', r.win ? fmtT(r.bonusT) : '—']];
+  const rows = [['Личинок спасено', G.tree.bonus ? '—' : r.stats.larvae + ' / ' + (G.tree.need + 1)], ['Монет собрано', r.stats.coins], ['Врагов побеждено', r.stats.kills], ['Ускользнул от дятла', r.stats.dodges + ' раз'], ['Секретных знаков', r.stats.secrets], ['Остаток времени', r.win ? fmtT(r.bonusT) : '—']];
   rows.forEach((x, i) => { txt(x[0], 220, 180 + i * 28, 17, '#d0c8a4', 'left'); txt(String(x[1]), 740, 180 + i * 28, 17, '#fff', 'right', true); });
   txt('Очки: ' + r.score, 480, 370, 30, '#ffe9a8', 'center', true);
   txt('Награда: +' + r.reward + ' монет' + (r.win ? '' : ' (половина за проигрыш)'), 480, 404, 18, '#ffd860');
   if (r.signs.length) txt('Найдено знаков: ' + r.signs.map(s => s.t === 'sp' ? SPECIES[s.i].n.split(' ').pop() : PARTS[s.i].n).join(', '), 480, 432, 14, '#c0a0ff');
-  r.got.forEach((g, i) => txt('Достижение: ' + g, 480, 458 + i * 22, 15, '#9ae0ff', 'center', true));
+  r.tasks.concat(r.got.map(g => 'Достижение: ' + g)).slice(0, 3).forEach((g, i) => txt(g, 480, 458 + i * 22, 15, '#9ae0ff', 'center', true));
   btn('В меню деревьев', 330, 530, 300, 50, () => { state = 'trees'; G = null; }, { key: 'Enter', size: 19 });
 }
 function drawFlyout(dt) {
@@ -1241,7 +1354,7 @@ addEventListener('keydown', e => {
   }
   if (state === 'title' && e.code === 'KeyN' && e.shiftKey) { meta = defMeta(); save(); return; }
   if (state === 'pause' && (e.code === 'KeyP' || e.code === 'Escape')) { state = 'play'; return; }
-  if (state === 'pre') { if (/^Digit[1-9]$/.test(e.code)) selEnt = Math.min(+e.code.slice(5) - 1, TREES[selTree].subs[TREES[selTree].start].ents.length - 1); if (e.code === 'ArrowLeft') cycleSp(-1); if (e.code === 'ArrowRight') cycleSp(1); }
+  if (state === 'pre') { if (/^Digit[1-9]$/.test(e.code)) { const tt = treeOf(selTree); selEnt = Math.min(+e.code.slice(5) - 1, tt.subs[tt.start].ents.length - 1); } if (e.code === 'ArrowLeft') cycleSp(-1); if (e.code === 'ArrowRight') cycleSp(1); }
   for (const b of btns) if (b.key === e.code) { sfx.click(); b.fn(); return; }
 });
 addEventListener('keyup', e => { keys[e.code] = false; });
@@ -1263,19 +1376,20 @@ function frame(now) {
   ctx.setTransform(K, 0, 0, K, 0, 0); ctx.clearRect(0, 0, 960, 640); btns = [];
   if (state !== 'play') time += dt;
   ambientOn(state === 'play' || state === 'pause'); if (state === 'play') ambientTick(dt);
-  if (['title', 'trees', 'pre', 'beetles', 'ach'].includes(state)) musicTick(dt);
+  if (['title', 'trees', 'pre', 'beetles', 'ach', 'shop'].includes(state)) musicTick(dt);
   if (state === 'play') { update(dt); if (state === 'play') drawWorld(); }
   if (state === 'title') drawTitle(); else if (state === 'trees') drawTrees(); else if (state === 'pre') drawPre();
-  else if (state === 'beetles') drawBeetles(); else if (state === 'ach') drawAch(); else if (state === 'result') drawResult(); else if (state === 'pause') drawPause(); else if (state === 'flyout') drawFlyout(dt);
+  else if (state === 'beetles') drawBeetles(); else if (state === 'ach') drawAch(); else if (state === 'result') drawResult(); else if (state === 'shop') drawShop(); else if (state === 'pause') drawPause(); else if (state === 'flyout') drawFlyout(dt);
   if (state !== 'play') { ctx.textAlign = 'center'; ctx.font = '17px ' + FONT; toasts.forEach((t, i) => { t.life -= dt; ctx.globalAlpha = clamp(t.life, 0, 1); ctx.fillStyle = '#ffb090'; ft(t.t, 480, 620 - i * 24); }); ctx.globalAlpha = 1; toasts = toasts.filter(t => t.life > 0); }
   requestAnimationFrame(frame);
 }
 if (location.hash) { if (location.hash.includes('touch')) touchMode = true; const h = location.hash.slice(1).replace('-touch', '').replace('-peck', '').replace('-fly', ''); if (h.startsWith('play')) { meta.energy = 9; const [a, b] = h.slice(4).split(':'); startRun(+a || 0, 0); if (b) enterSub(b, 0); for (let i = 0; i < 90; i++) update(1 / 60);
     if (location.hash.includes('peck')) { const L = G.sub.layers[G.layer]; let f = -1; for (let i = 0; i < L.peck.length; i++) if (L.peck[i] && L.type[i] === TUN) { f = i; break; } if (f >= 0) { G.p.x = G.p.sx = f % G.sub.W + .5; G.p.y = G.p.sy = ((f / G.sub.W) | 0) + .5; G.pecker.cd = 0; for (let i = 0; i < 600 && !(G.pecker.st === 'warn' && G.pecker.t > .5); i++) update(1 / 60); } }
-    if (location.hash.includes('fly')) { G.larvae = 4; finish(true, 'тест'); G.flyT = 1.0; } } else if (['trees', 'pre', 'beetles', 'ach', 'title'].includes(h)) { if (h === 'pre') selTree = 1; state = h; } }
+    if (location.hash.includes('fly')) { G.larvae = 4; finish(true, 'тест'); G.flyT = 1.0; } } else if (['trees', 'pre', 'beetles', 'ach', 'title', 'shop'].includes(h)) { if (h === 'pre') selTree = 1; state = h; } }
+dailyGift();
 requestAnimationFrame(frame);
 // хуки для автотестов
-window.__k = { sfx, snd: { ambientOn, ambientTick, musicTick, creak, chirp }, update: dt => update(dt), startRun, get G() { return G; }, get state() { return state; }, set state(v) { state = v; }, keys, meta, TREES, finish, genSub, pickup, SPECIES, bfsField, enterSub };
+window.__k = { makeTree, bonusTree, SHOP, get gift() { return gift; }, sfx, snd: { ambientOn, ambientTick, musicTick, creak, chirp }, update: dt => update(dt), startRun, get G() { return G; }, get state() { return state; }, set state(v) { state = v; }, keys, meta, TREES, finish, genSub, pickup, SPECIES, bfsField, enterSub };
 </script>
 </body>
 </html>
