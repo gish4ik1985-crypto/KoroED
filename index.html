@@ -228,9 +228,9 @@ const TREES = [
     subs: {
       A1: { name: 'Еловый корень', mw: 18, mh: 12, dir: 'down', mix: [.3, .4, .25, .05, 0], ents: [{}, {}, {}], exits: [{ to: 'A2', en: 0 }, { to: 'A2', en: 1 }], larvae: 1, coins: 12, nyash: ['slow'], en: { weak: 2 }, secret: 1, chest: 'rand' },
       A2: { name: 'Глубокие корни', mw: 20, mh: 14, dir: 'down', mix: [.2, .35, .35, .1, 0], ents: [{}, {}], exits: [{ to: 'B1', en: 0 }, { to: 'B1', en: 1 }], larvae: 1, hidden: 1, coins: 10, nyash: ['dmg', 'regen'], en: { weak: 2, mid: 1, friend: 1 }, chest: 'rand', friendT: 30 },
-      B1: { name: 'Нижний ствол ели', mw: 12, mh: 24, dir: 'up', layers: 2, mix: [.2, .4, .3, .1, 0], ents: [{ l: 0 }, { l: 1 }], exits: [{ to: 'B2', en: 0, l: 0 }, { to: 'C1', en: 0, l: 1 }], larvae: 1, coins: 10, nyash: ['slow', 'hp'], en: { weak: 2, mid: 1, patrol: 1 }, secret: 1, peck: { thr: 3, dmg: .4, layers: [0], ring: true }, chest: 'rand' },
-      B2: { name: 'Верхний ствол ели', mw: 12, mh: 18, dir: 'up', layers: 2, mix: [.15, .4, .35, .1, 0], ents: [{ l: 0 }], exits: [{ to: 'C1', en: 1, l: 0 }, { to: 'C2', en: 0, l: 1, secret: true }], larvae: 0, coins: 8, nyash: ['hp'], en: { mid: 2, strong: 1 }, peck: { thr: 2, dmg: .4, layers: [0], ring: true } },
-      C1: { name: 'Нижняя ветвь ели', mw: 16, mh: 6, dir: 'right', mix: [.3, .4, .3, 0, 0], ents: [{}, {}], exits: [{ to: 'FINISH' }], larvae: 1, coins: 8, nyash: ['coin'], en: { mid: 1 }, peck: { thr: 2, dmg: .4, ring: true } },
+      B1: { name: 'Нижний ствол ели', mw: 12, mh: 24, dir: 'up', layers: 2, mix: [.2, .4, .3, .1, 0], ents: [{ l: 0 }, { l: 1 }], exits: [{ to: 'B2', en: 0, l: 0 }, { to: 'C1', en: 0, l: 1 }], larvae: 1, coins: 10, nyash: ['slow', 'hp'], en: { weak: 2, mid: 1, patrol: 1 }, secret: 1, peck: { thr: 3, dmg: .3, layers: [0], ring: true }, chest: 'rand' },
+      B2: { name: 'Верхний ствол ели', mw: 12, mh: 18, dir: 'up', layers: 2, mix: [.15, .4, .35, .1, 0], ents: [{ l: 0 }], exits: [{ to: 'C1', en: 1, l: 0 }, { to: 'C2', en: 0, l: 1, secret: true }], larvae: 0, coins: 8, nyash: ['hp'], en: { mid: 2, strong: 1 }, peck: { thr: 2.5, dmg: .3, layers: [0], ring: true } },
+      C1: { name: 'Нижняя ветвь ели', mw: 16, mh: 6, dir: 'right', mix: [.3, .4, .3, 0, 0], ents: [{}, {}], exits: [{ to: 'FINISH' }], larvae: 1, coins: 8, nyash: ['coin'], en: { mid: 1 }, peck: { thr: 2.5, dmg: .3, ring: true } },
       C2: { name: 'Секретная верхняя ветвь', mw: 10, mh: 6, dir: 'right', mix: [.4, .4, .2, 0, 0], ents: [{}], exits: [{ to: 'FINISH' }], larvae: 1, coins: 14, en: {}, chest: 'sign', peck: { every: 5, dmg: .3, all: true } },
     } },
   { name: 'Сибирский Кедр', region: 'Россия, Западная Сибирь', diff: 4, time: 720, need: 4, signSp: [3, 4], start: 'A1',
@@ -240,9 +240,9 @@ const TREES = [
       A1: { name: 'Старый корень кедра', mw: 22, mh: 16, dir: 'down', mix: [.1, .25, .4, .15, .1], ents: [{}, {}, {}, {}], exits: [{ to: 'A2', en: 0 }, { to: 'A3', en: 0 }], larvae: 1, hidden: 1, coins: 14, nyash: ['slow', 'speed'], en: { weak: 2, mid: 1, patrol: 1, nahl: 3 }, secret: 1, chest: 'rand' },
       A2: { name: 'Западное корневище', mw: 16, mh: 10, dir: 'down', mix: [.2, .35, .3, .1, .05], ents: [{}], exits: [{ to: 'B1', en: 0 }], larvae: 0, coins: 25, nyash: ['coin'], en: { friend: 1, weak: 1 }, chest: 'rand', friendT: 30 },
       A3: { name: 'Восточное корневище', mw: 16, mh: 10, dir: 'down', mix: [.1, .3, .4, .15, .05], ents: [{}], exits: [{ to: 'B1', en: 1 }], larvae: 1, coins: 8, nyash: ['dmg'], en: { mid: 4 }, secret: 1, chest: 'rand' },
-      B1: { name: 'Нижний ствол кедра', mw: 14, mh: 28, dir: 'up', layers: 3, mix: [.1, .3, .4, .15, .05], ents: [{ l: 0 }, { l: 2 }], exits: [{ to: 'B2', en: 0, l: 0 }, { to: 'B2', en: 1, l: 2 }, { to: 'C1', en: 0, l: 1 }], larvae: 1, coins: 12, nyash: ['slow', 'hp', 'regen'], en: { weak: 2, mid: 2, patrol: 1, nahl: 4 }, secret: 1, peck: { thr: 2, dmg: .45, layers: [0], ring: true }, chest: 'rand' },
-      B2: { name: 'Верхний ствол кедра', mw: 14, mh: 22, dir: 'up', layers: 3, mix: [.1, .25, .4, .15, .1], ents: [{ l: 0 }, { l: 2 }], exits: [{ to: 'C2', en: 0, l: 1 }, { to: 'C3', en: 0, l: 0 }, { to: 'Cs', en: 0, l: 2, secret: true }], larvae: 0, coins: 10, nyash: ['hp', 'dmg'], en: { mid: 4, strong: 2, patrol: 1, nahl: 5 }, peck: { thr: 2, dmg: .45, layers: [0, 1], ring: true, top: .5 } },
-      C1: { name: 'Нижняя ветвь кедра', mw: 12, mh: 6, dir: 'right', mix: [.2, .4, .3, .1, 0], ents: [{}], exits: [{ to: 'FINISH' }], larvae: 1, coins: 8, en: { mid: 1 }, peck: { thr: 2, dmg: .45, ring: true } },
+      B1: { name: 'Нижний ствол кедра', mw: 14, mh: 28, dir: 'up', layers: 3, mix: [.1, .3, .4, .15, .05], ents: [{ l: 0 }, { l: 2 }], exits: [{ to: 'B2', en: 0, l: 0 }, { to: 'B2', en: 1, l: 2 }, { to: 'C1', en: 0, l: 1 }], larvae: 1, coins: 12, nyash: ['slow', 'hp', 'regen'], en: { weak: 2, mid: 2, patrol: 1, nahl: 4 }, secret: 1, peck: { thr: 2, dmg: .35, layers: [0], ring: true }, chest: 'rand' },
+      B2: { name: 'Верхний ствол кедра', mw: 14, mh: 22, dir: 'up', layers: 3, mix: [.1, .25, .4, .15, .1], ents: [{ l: 0 }, { l: 2 }], exits: [{ to: 'C2', en: 0, l: 1 }, { to: 'C3', en: 0, l: 0 }, { to: 'Cs', en: 0, l: 2, secret: true }], larvae: 0, coins: 10, nyash: ['hp', 'dmg'], en: { mid: 4, strong: 2, patrol: 1, nahl: 5 }, peck: { thr: 2, dmg: .35, layers: [0, 1], ring: true, top: .5 } },
+      C1: { name: 'Нижняя ветвь кедра', mw: 12, mh: 6, dir: 'right', mix: [.2, .4, .3, .1, 0], ents: [{}], exits: [{ to: 'FINISH' }], larvae: 1, coins: 8, en: { mid: 1 }, peck: { thr: 2, dmg: .35, ring: true } },
       C2: { name: 'Средняя ветвь кедра', mw: 14, mh: 8, dir: 'right', mix: [.2, .4, .3, .1, 0], ents: [{}], exits: [{ to: 'FINISH' }], larvae: 0, coins: 20, nyash: ['coin'], en: { mid: 2 } },
       C3: { name: 'Верхушка кедра', mw: 10, mh: 4, dir: 'right', mix: [.3, .4, .3, 0, 0], ents: [{}], exits: [{ to: 'FINISH' }], larvae: 0, coins: 6, en: {}, peck: { every: 3, dmg: .3, all: true }, chest: 'double' },
       Cs: { name: 'Заповедная ветвь', mw: 16, mh: 8, dir: 'right', mix: [.2, .35, .35, .1, 0], ents: [{}], exits: [{ to: 'FINISH' }], larvae: 1, coins: 12, en: { mid: 3 }, peck: { every: 4, dmg: .3, all: true }, chest: 'premium' },
@@ -264,7 +264,7 @@ function makeTree(n) {
   const layers = n < 8 ? 1 : n < 16 ? 2 : 3, L1 = layers - 1;
   const soft = Math.max(.08, .5 - k * .4), dense = .2 + k * .3, med = Math.max(.1, 1 - soft - dense), mix = [soft, med, dense, .03 + k * .14, n < 10 ? 0 : .03 + k * .09];
   const en = (w, m, st, pt, nh, fr) => { const o = {}; if (w) o.weak = w; if (m) o.mid = m; if (st) o.strong = st; if (pt) o.patrol = pt; if (nh) o.nahl = nh; if (fr) o.friend = fr; return o; };
-  const pk = (thr, extra) => ({ thr, dmg: Math.min(.6, .35 + k * .25), ring: true, ...extra });
+  const pk = (thr, extra) => ({ thr, dmg: Math.min(.5, .28 + k * .2), ring: true, ...extra });
   const twoA = rng() < .6, twoB = n > 9, nEnt = 1 + Math.floor(rng() * 3), subs = {};
   subs.A1 = { name: 'Корень', mw: 14 + lv * 2, mh: 9 + lv, dir: 'down', mix, ents: Array.from({ length: nEnt }, () => ({})), exits: [{ to: twoA ? 'A2' : 'B1', en: 0 }], larvae: 1, hidden: n > 12 ? 1 : 0, coins: 10, nyash: [pick(['speed', 'slow', 'coin'], rng)], en: en(1 + lv, n > 6 ? 1 : 0, 0, n > 10 ? 1 : 0, n > 14 ? 2 : 0), secret: 1, chest: 'rand' };
   if (twoA) subs.A2 = { name: 'Глубокий корень', mw: 14 + lv * 2, mh: 10 + lv, dir: 'down', mix, ents: [{}], exits: [{ to: 'B1', en: 0 }], larvae: 1, hidden: 1, coins: 12, nyash: ['dmg'], en: en(lv, 1 + lv, 0, 0, n > 14 ? 1 : 0, 1), friendT: 25, chest: 'rand' };
@@ -274,7 +274,7 @@ function makeTree(n) {
   subs.C1 = { name: 'Ветвь', mw: 12 + lv * 2, mh: 6, dir: 'right', mix: [soft + .1, med, Math.max(.1, dense - .1), 0, 0], ents: twoB ? [{}, {}] : [{}], exits: [{ to: 'FINISH' }], larvae: 5 - (2 + (twoA ? 1 : 0) + (twoB ? 1 : 0)), coins: 10, nyash: ['coin'], en: en(0, lv), peck: pk(Math.max(1.5, 3 - k * 1.5)) };
   subs.Cs = { name: 'Тайная ветвь', mw: 10 + lv, mh: 5, dir: 'right', mix: [Math.min(.9, soft + .2), med, .1, 0, 0], ents: [{}], exits: [{ to: 'FINISH' }], larvae: 0, coins: 16, en: en(0, lv), peck: { every: Math.max(3, 5 - lv * .5), dmg: .3, all: true }, chest: 'premium' };
   const feats = [layers > 1 ? layers + ' слоя ствола' : 'один слой ствола', mix[4] ? 'камень' : '', 'смоляные карманы', n > 10 ? 'неуязвимые патрули' : 'патрули', n > 14 ? 'нахлебники' : ''].filter(Boolean);
-  return { name, region, diff: Math.min(5, 2 + Math.floor(n / 9)), time: Math.round(360 + n * 9), need: 4, signSp: [1 + (n % 4)], start: 'A1', gen: true,
+  return { name, region, diff: Math.min(5, 2 + Math.floor(n / 9)), time: Math.round(420 + n * 11), need: 4, signSp: [1 + (n % 4)], start: 'A1', gen: true,
     text: 'Дерево №' + n + ': ' + feats.join(', ') + '. Дятел злее, древесина плотнее.', entLabels: nEnt > 1 ? ['Левый корень', 'Средний корень', 'Правый корень'].slice(0, nEnt) : null, subs };
 }
 for (let n = 4; n <= 50; n++) TREES.push(makeTree(n));
@@ -401,7 +401,7 @@ function genSub(tree, id, seed) {
       // зона дятла: полоса у коры (для горизонтальных ветвей — сверху/снизу, для вертикальных — слева/справа)
       if (pk && (!pk.layers || pk.layers.includes(li)) && (pk.top == null || y / H <= pk.top) && x >= B && y >= B && x < W - B && y < H - B) {
         const d = dir === 'right' ? Math.min(y, H - 1 - y) : Math.min(x, W - 1 - x);
-        if (pk.all || d <= B + 8) peck[y * W + x] = 1;
+        if (pk.all || d <= B + (dir === 'right' ? 5 : 8)) peck[y * W + x] = 1;
       }
     }
     sub.layers.push({ type, tint: new Uint8Array(W * H), base: new Uint8ClampedArray(W * H * 3), open: new Float32Array(W * H), dmg: new Float32Array(W * H), peck, exp: new Uint8Array(W * H), rooms: [] });
@@ -470,7 +470,13 @@ function genSub(tree, id, seed) {
       let nb = null, bd = 1e9; for (const o of nodes) { if (o === r) continue; const d = Math.hypot(o.x - r.x, o.y - r.y); if (d < bd && d < 40) { bd = d; nb = o; } }
       if (nb) carveGallery(sub, L, r.x, r.y, nb.x, nb.y, 2.0, 0, gk++);
     }
-    for (const r of L.rooms) carveBlob(sub, L, r.x, r.y, r.rad, 0);
+    for (const r of L.rooms) {
+      // вокруг гнезда и по пути к ближайшему открытому гнезду камень заменяется плотной древесиной — догрызться можно всегда
+      const nb = nearestOf(nodes.filter(o => o !== r), r) || r, len = Math.hypot(nb.x - r.x, nb.y - r.y), steps = Math.max(1, Math.ceil(len));
+      for (let q = 0; q <= steps; q++) { const cx = r.x + (nb.x - r.x) * q / steps, cy = r.y + (nb.y - r.y) * q / steps, rad = q === 0 || q === steps ? r.rad + 3 : 3;
+        for (let yy = Math.floor(cy - rad); yy <= cy + rad; yy++) for (let xx = Math.floor(cx - rad); xx <= cx + rad; xx++) { if (xx < B || yy < B || xx >= W - B || yy >= H - B) continue; const ii = yy * W + xx; if (L.type[ii] === STONE && (xx + .5 - cx) ** 2 + (yy + .5 - cy) ** 2 <= rad * rad) L.type[ii] = DENSE; } }
+      carveBlob(sub, L, r.x, r.y, r.rad, 0);
+    }
   }
   for (let li = 0; li < nL; li++) { const L = sub.layers[li]; for (let i = 0; i < W * H; i++) { setBase(sub, L, i); L.open[i] = openAt(sub, L, i % W, (i / W) | 0); } }
   sub.ready = true;
