@@ -21,7 +21,9 @@
    Чем больше ходов — тем быстрее дерево усыхает. Счёт — длина ходов.
    ===================================================================== */
 
-const GW = 240, GH = 160, S = 4;           // клеток, пикселей на клетку
+const GW = 240, GH = 160, S = 8;           // клеток, пикселей на клетку
+const VW = 960 / S, VH = 640 / S;          // видимая область в клетках
+let camX = 0, camY = 0;
 const CX = GW / 2, CY = GH / 2, R = 76;    // центр и радиус ствола (в клетках)
 const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
 const K = 2, FONT = '"Segoe UI", "Helvetica Neue", Roboto, Arial, sans-serif';
@@ -104,7 +106,7 @@ const sfx = {
 // ===================== МИР =====================
 let type, dens, edible, tint, base;
 let treeNum = 1, seed = 1, holes = [], woodCount = 1, tunCount = 0;
-let wp = null, rivals = [], dust = [];
+let wp = null, rivals = [], dust = [], pops = [];
 let bt, tree, G;          // жук, состояние дерева, состояние забега
 let flow = new Int16Array(GW * GH), flowT = 0;
 const idx = (x, y) => y * GW + x;
@@ -127,7 +129,7 @@ function genTree(num) {
     const late = w > .62 ? 1 : 0;
     dens[i] = clamp(.16 + .5 * depth * depth * 1.6 + .26 * late + (fbm(x * .2, y * .2, seed + 5) - .5) * .12, .08, 1);
     const n = fbm(x * .075, y * .075, seed + 11);
-    const thr = lerp(.48, .66, Math.pow(depth, .8));
+    const thr = lerp(.40, .60, Math.pow(depth, .8));
     edible[i] = n > thr ? 1 : 0;
   }
   // смоляные карманы — глубже и плотнее; растут с номером дерева
@@ -160,7 +162,7 @@ function carveDisc(cx, cy, rad, tnt, free, noBark) {
       cost += 0.085 + 0.23 * dens[i] + (t === RESIN ? 0.7 : 0);
       if (t === WOOD) {
         woodCount; tunCount++;
-        if (edible[i] && tnt !== T_SHAFT) { gain += 0.62; eatN++; tint[i] = T_EAT; } else tint[i] = tnt === T_PLAIN ? T_DUST : tnt;
+        if (edible[i] && tnt !== T_SHAFT) { gain += 0.95; eatN++; tint[i] = T_EAT; } else tint[i] = tnt === T_PLAIN ? T_DUST : tnt;
       } else if (t === RESIN) { resinN++; tint[i] = T_DUST; }
       else if (t === BARK) { tint[i] = T_HOLE; newHole = true; }
       if (tnt === T_HOLE || tnt === T_SHAFT) tint[i] = (t === BARK) ? T_HOLE : tnt;
@@ -229,14 +231,14 @@ function startRun() {
   genTree(meta.tree);
   const maxE = sp().maxE + meta.up.gut * 15;
   tree = { life: 100, base: Math.max(150, 330 - (treeNum - 1) * 20), attention: 0, humanT: -1 };
-  G = { energy: maxE, maxE, length: 0, quota: 90 + treeNum * 25, quotaDone: false, bites: 0, kills: 0, eaten: 0,
+  G = { energy: maxE, maxE, length: 0, quota: 70 + treeNum * 20, quotaDone: false, bites: 0, kills: 0, eaten: 0,
         woodpeckerCd: 18, rivalCd: 20, resinCd: 4, t: 0 };
-  wp = null; rivals = []; dust = []; toasts = []; over = null; flash = 0; shake = 0;
-  say('Жуй древесину! Что съедобно — узнаешь, только съев.', 4);
+  wp = null; rivals = []; dust = []; pops = []; toasts = []; over = null; flash = 0; shake = 0;
+  G.tutI = 0;
   state = 'play';
 }
 function endRun(why) {
-  const larv = Math.floor(G.length / 6) + (G.quotaDone ? 10 + treeNum * 2 : 0);
+  const larv = Math.floor(G.length / 4) + (G.quotaDone ? 10 + treeNum * 2 : 0);
   meta.larvae += larv; meta.total += Math.floor(G.length); meta.best = Math.max(meta.best, Math.floor(G.length));
   if (G.quotaDone) meta.tree++;
   const unlocked = SPECIES.findIndex((s, i) => i > 0 && s.need <= meta.total && s.need > meta.total - G.length);
@@ -250,7 +252,7 @@ function inputDir() {
   let dx = (keys.ArrowRight || keys.KeyD ? 1 : 0) - (keys.ArrowLeft || keys.KeyA ? 1 : 0);
   let dy = (keys.ArrowDown || keys.KeyS ? 1 : 0) - (keys.ArrowUp || keys.KeyW ? 1 : 0);
   if (!dx && !dy && ptr) {
-    const mx = ptr.x / S, my = ptr.y / S, ddx = mx - bt.x, ddy = my - bt.y, d = Math.hypot(ddx, ddy);
+    const mx = ptr.x / S + camX, my = ptr.y / S + camY, ddx = mx - bt.x, ddy = my - bt.y, d = Math.hypot(ddx, ddy);
     if (d > 2) { dx = ddx / d; dy = ddy / d; }
   }
   const l = Math.hypot(dx, dy); return l ? [dx / l, dy / l] : [0, 0];
@@ -288,11 +290,13 @@ function update(dt) {
     if (moving) bt.leg += dt * 14 * slow;
   } else { bt.digCell = -1; bt.digT = 0; }
   // расход энергии
-  G.energy -= dt * (1.0 - meta.up.gut * .06) * (1 + (treeNum - 1) * .03);
+  G.energy -= dt * (0.55 - meta.up.gut * .04) * (1 + (treeNum - 1) * .03);
   if (G.energy <= 0) { G.energy = 0; endRun('Силы кончились — ты не добрался до новой еды.'); return; }
   // кусать врагов
   if ((keys.Space || keys.KeyE) && bt.biteCd <= 0) { bt.biteCd = .38; biteRivals(); }
 
+  const TUT = [[0, 'Ты — короед. Ползи стрелками/WASD: куда упёрся, то и грызёшь.'], [6, 'Зелёное свечение вокруг — съедобная древесина. Ешь её: это твоя энергия.'], [14, 'Цель: проточи ходов на нужную длину (см справа вверху).'], [24, 'Дыры в коре зовут дятла и чужих. Не выходи к коре без нужды.']];
+  while (G.tutI < TUT.length && G.t >= TUT[G.tutI][0]) { say(TUT[G.tutI][1], 5); G.tutI++; }
   // --- дерево ---
   const frac = tunCount / woodCount;
   const rate = 100 / tree.base * (1 + 22 * frac);
@@ -316,6 +320,7 @@ function update(dt) {
   updateRivals(dt);
   // пыль и тосты
   for (const t of toasts) t.life -= dt; toasts = toasts.filter(t => t.life > 0);
+  for (const q of pops) { q.y -= 5 * dt; q.life -= dt; } pops = pops.filter(q => q.life > 0);
   for (const p of dust) { p.x += p.vx * dt; p.y += p.vy * dt; p.vy += 30 * dt; p.life -= dt; } dust = dust.filter(p => p.life > 0);
   shake = Math.max(0, shake - dt * 8); flash = Math.max(0, flash - dt * 2.5);
 }
@@ -325,6 +330,8 @@ function bite(px, py, ci) {
   const res = carveDisc(px, py, 2.1, T_PLAIN, false);
   G.energy = Math.min(G.maxE, G.energy - res.cost * (1 + (treeNum - 1) * .02) + res.gain);
   G.bites++; G.eaten += res.eatN;
+  if (res.gain > .4) pops.push({ x: px, y: py, t: '+' + Math.round(res.gain) + ' энергии', c: '#b8f070', life: 1.1 });
+  else if (res.cost > 2.4) pops.push({ x: px, y: py, t: '−' + Math.round(res.cost), c: '#ff9a80', life: .8 });
   if (bt.lastBite) { const d = Math.hypot(px - bt.lastBite.x, py - bt.lastBite.y); if (d < 6) G.length += d * .9; }
   bt.lastBite = { x: px, y: py };
   if (res.eatN >= 3) sfx.eat(); else sfx.chew(dd);
@@ -502,8 +509,8 @@ function biteRivals() {
 }
 
 // ===================== ОТРИСОВКА =====================
-function renderGrid(lightOn, lx, ly) {
-  const d = img.data, decay = 1 - tree.life / 100;
+function renderGrid(lightOn, lx, ly, full) {
+  const d = img.data, decay = 1 - tree.life / 100, smR = 10 + meta.up.gut * 1.5, smR2 = smR * smR;
   for (let y = 0; y < GH; y++) for (let x = 0; x < GW; x++) {
     const i = y * GW + x, p = i * 4, b = i * 3, t = type[i];
     let r = base[b], g = base[b + 1], bl = base[b + 2];
@@ -517,17 +524,19 @@ function renderGrid(lightOn, lx, ly) {
         if (tint[i] === T_RESINED) L = Math.max(L, .55);
       } else L = .75;
       r *= L; g *= L; bl *= L;
+      if (lightOn && t === WOOD && edible[i]) { const ddx = x - lx, ddy = y - ly, d2 = ddx * ddx + ddy * ddy; if (d2 < smR2) { const k = (1 - d2 / smR2) * (.55 + .2 * Math.sin(time * 4 + x * .7 + y)); r = r + (90 - r) * k * .6; g = g + (230 - g) * k * .6; bl = bl + (90 - bl) * k * .6; } }
       if (decay > .35) { const k = (decay - .35) * .6, m = (r + g + bl) / 3 * .85; r += (m - r) * k; g += (m - g) * k; bl += (m - bl) * k; }
     }
     d[p] = r; d[p + 1] = g; d[p + 2] = bl; d[p + 3] = 255;
   }
   octx.putImageData(img, 0, 0);
   ctx.imageSmoothingEnabled = false;
-  ctx.drawImage(off, 0, 0, GW * S, GH * S);
+  if (full) ctx.drawImage(off, 0, 0, GW, GH, 0, 0, 960, 640);
+  else ctx.drawImage(off, camX, camY, VW, VH, 0, 0, 960, 640);
 }
 
 function drawBeetle(x, y, a, r, col, dark, leg, big, hurtF) {
-  ctx.save(); ctx.translate(x * S, y * S); ctx.rotate(a); const k = r * S / 7;
+  ctx.save(); ctx.translate(x * S, y * S); ctx.rotate(a); const k = r * S / 7 * 1.45;
   ctx.scale(k, k);
   ctx.strokeStyle = dark; ctx.lineWidth = 1.2;
   for (let i = -1; i <= 1; i++) for (const s of [-1, 1]) {
@@ -548,12 +557,14 @@ function drawBeetle(x, y, a, r, col, dark, leg, big, hurtF) {
 function drawWorld() {
   const sh = shake * 3;
   ctx.save(); if (sh) ctx.translate((Math.random() - .5) * sh, (Math.random() - .5) * sh);
+  camX += (clamp(bt.x - VW / 2, -8, GW - VW + 8) - camX) * .12; camY += (clamp(bt.y - VH / 2, -8, GH - VH + 8) - camY) * .12;
   renderGrid(true, bt.x, bt.y);
+  ctx.translate(-camX * S, -camY * S);
   // прогресс грызни
   if (bt.digCell >= 0) {
     const cx = bt.digCell % GW, cy = (bt.digCell / GW) | 0;
     ctx.strokeStyle = 'rgba(255,240,180,.9)'; ctx.lineWidth = 1.5;
-    ctx.beginPath(); ctx.arc((cx + .5) * S, (cy + .5) * S, 7 + Math.sin(time * 30) * 1, 0, 7); ctx.stroke();
+    ctx.beginPath(); ctx.arc((cx + .5) * S, (cy + .5) * S, S * 1.1 + Math.sin(time * 30), 0, 7); ctx.stroke();
   }
   // линия дятла
   if (wp) {
@@ -561,13 +572,13 @@ function drawWorld() {
     const L = 52;
     if (wp.st === 'warn') {
       const locked = wp.t >= 1.3, pulse = .45 + .4 * Math.sin(time * (locked ? 28 : 10));
-      ctx.strokeStyle = locked ? `rgba(255,60,40,${pulse + .2})` : `rgba(255,170,60,${pulse})`; ctx.lineWidth = locked ? 5 : 3; ctx.setLineDash([8, 8]);
+      ctx.strokeStyle = locked ? `rgba(255,60,40,${pulse + .2})` : `rgba(255,170,60,${pulse})`; ctx.lineWidth = locked ? 8 : 5; ctx.setLineDash([14, 12]);
       ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x0 + Math.cos(wp.ang) * L * S, y0 + Math.sin(wp.ang) * L * S); ctx.stroke(); ctx.setLineDash([]);
     }
     // птица снаружи у дыры
-    const bx = x0 + Math.cos(wp.a0 + Math.PI) * 26, by = y0 + Math.sin(wp.a0 + Math.PI) * 26;
+    const bx = x0 + Math.cos(wp.a0 + Math.PI) * 7 * S, by = y0 + Math.sin(wp.a0 + Math.PI) * 7 * S;
     const peck = wp.st === 'drill' ? Math.sin(time * 70) * 4 : (wp.st === 'warn' ? Math.sin(time * 12) * 2 : 0);
-    ctx.save(); ctx.translate(bx, by); ctx.rotate(wp.a0 + Math.PI + Math.PI);
+    ctx.save(); ctx.translate(bx, by); ctx.rotate(wp.a0 + Math.PI + Math.PI); ctx.scale(S / 4, S / 4);
     ctx.translate(peck, 0);
     ctx.fillStyle = '#1a1a1a'; ctx.beginPath(); ctx.ellipse(-8, 0, 15, 9, 0, 0, 7); ctx.fill();
     ctx.fillStyle = '#c8281e'; ctx.beginPath(); ctx.arc(-4, -2, 5, 0, 7); ctx.fill();
@@ -586,7 +597,10 @@ function drawWorld() {
   // жук
   drawBeetle(bt.x, bt.y, bt.a, bt.r, ['#8a5a2a', '#3a4c34', '#5a4a7c'][meta.sp], '#1c1208', bt.leg, false, bt.hurt > 0);
   // частицы
-  for (const p of dust) { ctx.globalAlpha = clamp(p.life * 2, 0, 1); ctx.fillStyle = p.c; ctx.fillRect(p.x * S, p.y * S, 3, 3); }
+  for (const p of dust) { ctx.globalAlpha = clamp(p.life * 2, 0, 1); ctx.fillStyle = p.c; ctx.fillRect(p.x * S, p.y * S, S * .6, S * .6); }
+  ctx.globalAlpha = 1;
+  ctx.textAlign = 'center'; ctx.font = 'bold 17px ' + FONT;
+  for (const q of pops) { ctx.globalAlpha = clamp(q.life * 2, 0, 1); ctx.fillStyle = q.c; ft(q.t, q.x * S, q.y * S - 14); }
   ctx.globalAlpha = 1;
   ctx.restore();
   if (flash > 0) { ctx.fillStyle = `rgba(200,20,10,${flash * .35})`; ctx.fillRect(0, 0, cv.width, cv.height); }
@@ -620,15 +634,29 @@ function drawHUD() {
   ft('Дерево №' + treeNum + ' · цель ' + G.quota + ' см' + (G.quotaDone ? ' ✓' : ''), 950, 58);
   ft(sp().name, 950, 80);
   ft('Съедено врагов: ' + G.kills, 950, 102);
+  // мини-карта
+  const mx0 = 10, my0 = 452, mw = 180, mh = 120;
+  ctx.fillStyle = 'rgba(0,0,0,.7)'; ctx.fillRect(mx0 - 3, my0 - 3, mw + 6, mh + 6);
+  ctx.imageSmoothingEnabled = true; ctx.drawImage(off, 0, 0, GW, GH, mx0, my0, mw, mh); ctx.imageSmoothingEnabled = false;
+  ctx.strokeStyle = 'rgba(255,255,255,.55)'; ctx.lineWidth = 1; ctx.strokeRect(mx0 + camX / GW * mw, my0 + camY / GH * mh, VW / GW * mw, VH / GH * mh);
+  const dot = (x, y, c, r) => { ctx.fillStyle = c; ctx.beginPath(); ctx.arc(mx0 + x / GW * mw, my0 + y / GH * mh, r, 0, 7); ctx.fill(); };
+  for (const h of holes) dot(h.x, h.y, '#fff', 1.6);
+  for (const e of rivals) dot(e.x, e.y, '#ff4030', 2.6);
+  dot(bt.x, bt.y, '#ffe040', 3);
+  ctx.textAlign = 'left'; ctx.font = '12px ' + FONT; ctx.fillStyle = '#cfc7a4'; ft('Карта дерева', mx0, my0 - 8);
+  // цель
+  const left = Math.max(0, Math.ceil(G.quota - G.length));
+  ctx.textAlign = 'center'; ctx.font = 'bold 17px ' + FONT; ctx.fillStyle = G.quotaDone ? '#c4ec7c' : '#ffe9a8';
+  ft(G.quotaDone ? 'Цель выполнена! Грызи дальше ради рекорда' : 'ЦЕЛЬ: прогрызи ещё ' + left + ' см ходов', 480, 618);
   ctx.fillStyle = '#cfc7a4'; ctx.font = '13px ' + FONT;
-  ft('WASD / стрелки / мышь — ползти и грызть · Пробел — кусать · P — пауза · M — звук', 950, 628);
+  ctx.textAlign = 'right'; ft('Пробел — кусать врага · P — пауза · M — звук', 950, 636);
   if (tree.humanT >= 0) {
     ctx.textAlign = 'center'; ctx.font = 'bold 32px ' + FONT; ctx.fillStyle = '#ff7a60';
     ft('ЛЕСНИК: ' + Math.ceil(tree.humanT) + ' с', 480, 44);
   }
   ctx.textAlign = 'center'; ctx.font = '17px ' + FONT;
   toasts.forEach((t, i) => {
-    ctx.globalAlpha = clamp(t.life, 0, 1); const y = 92 + i * 30;
+    ctx.globalAlpha = clamp(t.life, 0, 1); const y = 214 + i * 32;
     const w = ctx.measureText(t.t).width + 28;
     ctx.fillStyle = 'rgba(0,0,0,.7)'; ctx.fillRect(480 - w / 2, y - 20, w, 28);
     ctx.fillStyle = '#fff2c8'; ft(t.t, 480, y);
@@ -643,7 +671,7 @@ function txt(s, x, y, size, col, al, bold) { ctx.font = (bold ? 'bold ' : '') + 
 let titleTree = false;
 function drawTitle() {
   if (!titleTree) { genTree(meta.tree); titleTree = true; tree = { life: 100, attention: 0, humanT: -1 }; }
-  renderGrid(false, 0, 0);
+  renderGrid(false, 0, 0, true);
   panel(14, 612);
   txt('KORoED', 480, 78, 56, '#ffd98a', 'center', true);
   txt('«Ходы» — ты короед. Проточи лучшие ходы, пока дерево не усохло.', 480, 108, 18, '#efe6c4');
@@ -685,7 +713,7 @@ function wrap(s, x, y, w, size, col) {
   txt(line, x, yy, size, col);
 }
 function drawOver() {
-  renderGrid(false, 0, 0);
+  renderGrid(false, 0, 0, true);
   ctx.fillStyle = 'rgba(0,0,0,.35)'; ctx.fillRect(0, 0, 960, 640);
   ctx.fillStyle = 'rgba(8,10,6,.85)'; ctx.fillRect(140, 100, 680, 410); ctx.strokeStyle = '#6a5a30'; ctx.lineWidth = 1.5; ctx.strokeRect(140, 100, 680, 410);
   txt(over.quota ? 'Дерево освоено!' : 'Конец забега', 480, 160, 42, over.quota ? '#c4ec7c' : '#ffa880', 'center', true);
@@ -748,7 +776,7 @@ function frame(now) {
   else if (state === 'over') drawOver();
   requestAnimationFrame(frame);
 }
-if (location.hash === '#play') { startRun(); for (let i = 0; i < 600; i++) { keys.ArrowDown = true; update(1/60); } keys.ArrowDown = false; }
+if (location.hash.startsWith('#play')) { startRun(); for (let i = 0; i < 600; i++) { keys.ArrowDown = true; update(1/60); } keys.ArrowDown = false; }
 requestAnimationFrame(frame);
 // для автотестов
 window.__koroed = { update: dt => update(dt), get s() { return { state, bt, G, tree, rivals, wp, holes, type, meta }; }, startRun, bite, keys };
