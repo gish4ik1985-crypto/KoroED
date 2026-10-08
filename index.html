@@ -205,149 +205,141 @@ const partCost = lv => [3, 5, 6, 7, 8, 9, 10][lv - 1];
 
 // ===================== ГЕНЕРАЦИЯ ПОДУРОВНЕЙ =====================
 const P = 7, B = 3;           // шаг клетки лабиринта, толщина коры
-function makeMaze(mw, mh, rng, loops) {
-  const R = Array.from({ length: mh }, () => new Uint8Array(mw)), D = Array.from({ length: mh }, () => new Uint8Array(mw));
-  const vis = Array.from({ length: mh }, () => new Uint8Array(mw));
-  const st = [[(rng() * mw) | 0, (rng() * mh) | 0]]; vis[st[0][1]][st[0][0]] = 1;
-  while (st.length) {
-    const [x, y] = st[st.length - 1], ns = [];
-    if (x > 0 && !vis[y][x - 1]) ns.push([x - 1, y, 0]); if (x < mw - 1 && !vis[y][x + 1]) ns.push([x + 1, y, 1]);
-    if (y > 0 && !vis[y - 1][x]) ns.push([x, y - 1, 2]); if (y < mh - 1 && !vis[y + 1][x]) ns.push([x, y + 1, 3]);
-    if (!ns.length) { st.pop(); continue; }
-    const [nx, ny, d] = pick(ns, rng);
-    if (d === 0) R[y][nx] = 1; else if (d === 1) R[y][x] = 1; else if (d === 2) D[ny][x] = 1; else D[y][x] = 1;
-    vis[ny][nx] = 1; st.push([nx, ny]);
-  }
-  for (let k = 0; k < loops; k++) {
-    const x = (rng() * mw) | 0, y = (rng() * mh) | 0;
-    if (rng() < .5) { if (x < mw - 1) R[y][x] = 1; } else if (y < mh - 1) D[y][x] = 1;
-  }
-  return { R, D };
-}
-const mazeDeg = (m, x, y, mw, mh) => (x < mw - 1 && m.R[y][x] ? 1 : 0) + (x > 0 && m.R[y][x - 1] ? 1 : 0) + (y < mh - 1 && m.D[y][x] ? 1 : 0) + (y > 0 && m.D[y - 1][x] ? 1 : 0);
-
 function setBase(sub, L, i) {
   const x = i % sub.W, y = (i / sub.W) | 0, t = L.type[i], n = hash2(x, y, sub.seed), n2 = fbm(x * .2, y * .2, sub.seed + 9);
   let r, g, b;
   if (t === TUN) {
     const k = L.tint[i];
-    if (k === 1) { r = 74; g = 60; b = 44; } else if (k === 2) { r = 130; g = 150; b = 100; } else { r = 62; g = 42; b = 26; }
+    if (k === 1) { r = 74; g = 60; b = 44; } else if (k === 2) { r = 130; g = 150; b = 100; } else { r = 34; g = 26; b = 22; }
     const v = .92 + (n - .5) * .16; r *= v; g *= v; b *= v;
   } else if (t === BARK) { const v = .7 + n2 * .6; r = 92 * v; g = 64 * v; b = 40 * v; if (n > .94) { r += 12; g += 28; b += 6; } }
   else if (t === STONE) { const v = .75 + n2 * .5; r = 112 * v; g = 114 * v; b = 122 * v; }
   else if (t === RESIN) { const v = .85 + n2 * .35; r = 232 * v; g = 142 * v; b = 36 * v; if (n > .9) { r = 255; g = 214; b = 112; } }
-  else { const c = t === SOFT ? [218, 188, 134] : t === MED ? [180, 136, 86] : [124, 84, 48]; const v = .88 + (n2 - .5) * .35 + (n - .5) * .06; r = c[0] * v; g = c[1] * v; b = c[2] * v; }
+  else { const c = t === SOFT ? [218, 188, 134] : t === MED ? [186, 142, 90] : [146, 104, 64]; const v = .88 + (n2 - .5) * .35 + (n - .5) * .06; r = c[0] * v; g = c[1] * v; b = c[2] * v; }
   L.base[i * 3] = r; L.base[i * 3 + 1] = g; L.base[i * 3 + 2] = b;
+}
+
+// вырезать «гнездо» (неправильный круг) и «ход» (извилистый проход между гнёздами)
+function carveTile(sub, L, i, tint) { if (L.type[i] !== TUN) { L.type[i] = TUN; L.tint[i] = tint; if (sub.ready) setBase(sub, L, i); } }
+function carveBlob(sub, L, cx, cy, rad, tint) {
+  const W = sub.W, H = sub.H;
+  for (let y = Math.floor(cy - rad - 2); y <= cy + rad + 2; y++) for (let x = Math.floor(cx - rad - 2); x <= cx + rad + 2; x++) {
+    if (x < B || y < B || x >= W - B || y >= H - B) continue;
+    const dx = x + .5 - cx, dy = y + .5 - cy, d = Math.hypot(dx, dy), ang = Math.atan2(dy, dx);
+    const rr = rad * (.86 + .34 * vnoise(Math.cos(ang) * 1.6 + cx, Math.sin(ang) * 1.6 + cy, sub.seed + 5));
+    if (d <= rr) carveTile(sub, L, y * W + x, tint);
+  }
+}
+function carveGallery(sub, L, ax, ay, bx, by, rad, tint, seedK) {
+  const W = sub.W, H = sub.H, len = Math.max(1, Math.hypot(bx - ax, by - ay)), n = Math.max(2, Math.ceil(len / .9));
+  const nx = -(by - ay) / len, ny = (bx - ax) / len, amp = Math.min(4, len * .12), ph = (seedK || 0) * 1.7, fr = 2 + (seedK || 0) % 3;
+  for (let k = 0; k <= n; k++) {
+    const t = k / n, w = Math.sin(t * Math.PI * fr + ph) * amp * Math.sin(t * Math.PI);
+    const x = ax + (bx - ax) * t + nx * w, y = ay + (by - ay) * t + ny * w;
+    for (let yy = Math.floor(y - rad); yy <= y + rad; yy++) for (let xx = Math.floor(x - rad); xx <= x + rad; xx++) {
+      if (xx < B || yy < B || xx >= W - B || yy >= H - B) continue;
+      if ((xx + .5 - x) ** 2 + (yy + .5 - y) ** 2 <= rad * rad) carveTile(sub, L, yy * W + xx, tint);
+    }
+  }
 }
 
 function genSub(tree, id, seed) {
   const cfg = tree.subs[id], rng = mulberry32(seed), mw = cfg.mw, mh = cfg.mh, W = B * 2 + mw * P + 3, H = B * 2 + mh * P + 3, nL = cfg.layers || 1, dir = cfg.dir;
-  const sub = { id, cfg, tree, seed, W, H, mw, mh, nL, layers: [], items: [], enemies: [], links: [], exits: [], ents: [], friends: [] };
+  const sub = { id, cfg, tree, seed, W, H, mw, mh, nL, layers: [], items: [], enemies: [], links: [], exits: [], ents: [], friends: [], ready: false };
   const ox = cx => B + 3 + cx * P, oy = cy => B + 3 + cy * P, cc = (cx, cy) => ({ x: ox(cx) + 2, y: oy(cy) + 2 });
   const mix = cfg.mix || [.6, .3, .1, 0, 0];
   const side = (i, n, len) => clamp(Math.round((i + .5) * len / n - .5), 0, len - 1);
   const enCell = (i, n) => dir === 'down' ? [side(i, n, mw), 0] : dir === 'up' ? [side(i, n, mw), mh - 1] : [0, side(i, n, mh)];
   const exCell = (i, n) => dir === 'down' ? [side(i, n, mw), mh - 1] : dir === 'up' ? [side(i, n, mw), 0] : [mw - 1, side(i, n, mh)];
   const used = new Set(), key = (li, cx, cy) => li + ':' + cx + ',' + cy;
-  // слои
+  // слои: сплошная древесина разной плотности
   for (let li = 0; li < nL; li++) {
-    const type = new Uint8Array(W * H);
+    const type = new Uint8Array(W * H), peck = new Uint8Array(W * H), pk = cfg.peck;
     for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
-      if (x < B || y < B || x >= W - B || y >= H - B) { type[y * W + x] = BARK; continue; }
-      const v = clamp((fbm(x * .11, y * .11, seed + li * 17) - .3) / .4, 0, 1);
-      let t = v < mix[0] ? SOFT : v < mix[0] + mix[1] ? MED : DENSE;
-      if (mix[3] > 0 && vnoise(x * .17, y * .17, seed + 99 + li) > 1 - mix[3] * 1.6) t = RESIN;
-      if (mix[4] > 0 && vnoise(x * .14, y * .14, seed + 123 + li) > 1 - mix[4] * 1.6) t = STONE;
-      type[y * W + x] = t;
+      if (x < B || y < B || x >= W - B || y >= H - B) { type[y * W + x] = BARK; }
+      else {
+        const v = clamp((fbm(x * .11, y * .11, seed + li * 17) - .3) / .4, 0, 1);
+        let t = v < mix[0] ? SOFT : v < mix[0] + mix[1] ? MED : DENSE;
+        if (mix[3] > 0 && vnoise(x * .17, y * .17, seed + 99 + li) > 1 - mix[3] * 1.6) t = RESIN;
+        if (mix[4] > 0 && vnoise(x * .14, y * .14, seed + 123 + li) > 1 - mix[4] * 1.6) t = STONE;
+        type[y * W + x] = t;
+      }
+      // зона дятла: полоса у коры (для горизонтальных ветвей — сверху/снизу, для вертикальных — слева/справа)
+      if (pk && (!pk.layers || pk.layers.includes(li)) && (pk.top == null || y / H <= pk.top) && x >= B && y >= B && x < W - B && y < H - B) {
+        const d = dir === 'right' ? Math.min(y, H - 1 - y) : Math.min(x, W - 1 - x);
+        if (pk.all || d <= B + 8) peck[y * W + x] = 1;
+      }
     }
-    const maze = makeMaze(mw, mh, rng, Math.round(mw * mh * .1));
-    const L = { type, tint: new Uint8Array(W * H), base: new Uint8ClampedArray(W * H * 3), peck: new Uint8Array(W * H), exp: new Uint8Array(W * H), maze };
-    const fill = (x0, y0, w, h, t) => { for (let y = y0; y < y0 + h; y++) for (let x = x0; x < x0 + w; x++) type[y * W + x] = t; };
-    for (let cy = 0; cy < mh; cy++) for (let cx = 0; cx < mw; cx++) {
-      fill(ox(cx), oy(cy), 4, 4, TUN);
-      if (cx < mw - 1 && maze.R[cy][cx]) fill(ox(cx) + 4, oy(cy), 3, 4, TUN);
-      if (cy < mh - 1 && maze.D[cy][cx]) fill(ox(cx), oy(cy) + 4, 4, 3, TUN);
-      const pk = cfg.peck;
-      if (pk && (!pk.layers || pk.layers.includes(li)) && (pk.top == null || cy / mh <= pk.top) && (pk.all || (dir === 'right' ? (cy === 0 || cy === mh - 1) : (cx === 0 || cx === mw - 1))))
-        for (let y = oy(cy); y < oy(cy) + 4; y++) for (let x = ox(cx); x < ox(cx) + 4; x++) L.peck[y * W + x] = 1;
-    }
-    sub.layers.push(L);
+    sub.layers.push({ type, tint: new Uint8Array(W * H), base: new Uint8ClampedArray(W * H * 3), peck, exp: new Uint8Array(W * H), rooms: [] });
   }
   const free = (li, cx, cy) => !used.has(key(li, cx, cy));
   const nearEnt = (li, cx, cy) => sub.ents.some(e => e.layer === li && Math.abs(e.cx - cx) + Math.abs(e.cy - cy) < 3);
+  const addRoom = (li, x, y, iso, rad) => sub.layers[li].rooms.push({ x, y, iso: !!iso, rad: rad || 3 });
   // входы
   cfg.ents.forEach((e, i) => {
     const [cx, cy] = enCell(i, cfg.ents.length), li = e.l || 0, p = cc(cx, cy);
-    sub.ents.push({ layer: li, cx, cy, x: p.x, y: p.y, label: e.label }); used.add(key(li, cx, cy));
+    sub.ents.push({ layer: li, cx, cy, x: p.x, y: p.y, label: e.label }); used.add(key(li, cx, cy)); addRoom(li, p.x, p.y, false, 3.4);
   });
-  const anyFree = (li, wantDead) => {
-    const L = sub.layers[li], cand = [];
-    for (let cy = 0; cy < mh; cy++) for (let cx = 0; cx < mw; cx++) {
-      if (!free(li, cx, cy) || nearEnt(li, cx, cy)) continue;
-      if (wantDead && mazeDeg(L.maze, cx, cy, mw, mh) !== 1) continue;
-      cand.push([cx, cy]);
-    }
-    return cand.length ? pick(cand, rng) : null;
-  };
+  const anyFree = li => { const cand = []; for (let cy = 0; cy < mh; cy++) for (let cx = 0; cx < mw; cx++) if (free(li, cx, cy) && !nearEnt(li, cx, cy)) cand.push([cx, cy]); return cand.length ? pick(cand, rng) : null; };
   const anyLayer = () => (rng() * nL) | 0;
-  const place = (li, dead) => { let c = anyFree(li, dead); if (!c && dead) c = anyFree(li, false); if (!c) return null; used.add(key(li, c[0], c[1])); return { cx: c[0], cy: c[1], layer: li, ...cc(c[0], c[1]) }; };
-  // закрыть единственный проход тупика плотной древесиной
-  const sealDead = (c, t) => {
-    const L = sub.layers[c.layer], { cx, cy } = c, m = L.maze;
-    const fill = (x0, y0, w, h) => { for (let y = y0; y < y0 + h; y++) for (let x = x0; x < x0 + w; x++) L.type[y * W + x] = t; };
-    if (cx < mw - 1 && m.R[cy][cx]) fill(ox(cx) + 4, oy(cy), 3, 4);
-    else if (cx > 0 && m.R[cy][cx - 1]) fill(ox(cx - 1) + 4, oy(cy), 3, 4);
-    else if (cy < mh - 1 && m.D[cy][cx]) fill(ox(cx), oy(cy) + 4, 4, 3);
-    else if (cy > 0 && m.D[cy - 1][cx]) fill(ox(cx), oy(cy - 1) + 4, 4, 3);
-  };
+  // iso=true — гнездо без готового хода: к нему надо прогрызаться самому
+  const place = (li, iso, rad) => { const c = anyFree(li); if (!c) return null; used.add(key(li, c[0], c[1])); const p = cc(c[0], c[1]); addRoom(li, p.x, p.y, iso, rad || 3); return { cx: c[0], cy: c[1], layer: li, x: p.x, y: p.y }; };
   // выходы
   cfg.exits.forEach((e, i) => {
-    let c;
-    if (e.secret) { c = place(e.l || 0, true); sealDead(c, DENSE); sub.exits.push({ ...c, to: e.to, en: e.en || 0, secret: true }); }
-    else { const [cx, cy] = exCell(i, cfg.exits.length), li = e.l || 0, p = cc(cx, cy); used.add(key(li, cx, cy)); sub.exits.push({ cx, cy, layer: li, x: p.x, y: p.y, to: e.to, en: e.en || 0 }); }
+    if (e.secret) { const c = place(e.l || 0, true, 3.2); sub.exits.push({ ...c, to: e.to, en: e.en || 0, secret: true }); }
+    else { const [cx, cy] = exCell(i, cfg.exits.length), li = e.l || 0, p = cc(cx, cy); used.add(key(li, cx, cy)); addRoom(li, p.x, p.y, false, 3.4); sub.exits.push({ cx, cy, layer: li, x: p.x, y: p.y, to: e.to, en: e.en || 0 }); }
   });
-  // порталы между слоями
+  // порталы между слоями (гнёзда в обоих слоях)
   for (let li = 0; li < nL - 1; li++) for (let k = 0; k < 3; k++) {
-    const c = place(li, false); if (!c) continue; used.add(key(li + 1, c.cx, c.cy));
+    const c = place(li, false, 2.8); if (!c) continue; used.add(key(li + 1, c.cx, c.cy)); addRoom(li + 1, c.x, c.y, false, 2.8);
     sub.links.push({ a: li, b: li + 1, x: c.x, y: c.y, cd: 0 });
   }
   // предметы
   const addItem = (k, c, extra) => { if (c) sub.items.push({ k, x: c.x, y: c.y, layer: c.layer, ...extra }); };
-  for (let i = 0; i < (cfg.larvae || 0); i++) {
-    const hid = i < (cfg.hidden || 0), c = place(anyLayer(), true);
-    if (c && hid) sealDead(c, DENSE); addItem('larva', c, {});
-  }
-  for (let i = 0; i < (cfg.secret || 0); i++) { const c = place(anyLayer(), true); if (c) { if (rng() < .5) sealDead(c, MED); addItem('secret', c, {}); } }
-  (cfg.nyash || []).forEach(kind => addItem('nyash', place(anyLayer(), false), { kind }));
-  if (cfg.chest) addItem('chest', place(anyLayer(), true), { mode: cfg.chest });
-  const nCoin = cfg.coins || 0;
-  for (let i = 0; i < nCoin; i++) {
-    const li = anyLayer(), c = anyFree(li, false); if (!c) break;
-    const p = cc(c[0], c[1]); addItem('coin', { x: p.x + (rng() - .5) * 2, y: p.y + (rng() - .5) * 2, layer: li }, {});
+  for (let i = 0; i < (cfg.larvae || 0); i++) addItem('larva', place(anyLayer(), i < (cfg.hidden || 0), 3), {});
+  for (let i = 0; i < (cfg.secret || 0); i++) addItem('secret', place(anyLayer(), rng() < .6, 2.6), {});
+  (cfg.nyash || []).forEach(kind => addItem('nyash', place(anyLayer(), false, 2.6), { kind }));
+  if (cfg.chest) addItem('chest', place(anyLayer(), rng() < .4, 3), { mode: cfg.chest });
+  // монеты россыпью в самой древесине (находишь, когда прогрызаешься)
+  for (let i = 0; i < (cfg.coins || 0); i++) {
+    const li = anyLayer(), c = anyFree(li); if (!c) break; const p = cc(c[0], c[1]);
+    addItem('coin', { x: p.x + (rng() - .5) * 4, y: p.y + (rng() - .5) * 4, layer: li }, {});
   }
   // враги
   const en = cfg.en || {};
   for (const kind in en) for (let i = 0; i < en[kind]; i++) {
-    const li = anyLayer(), c = kind === 'friend' ? place(li, true) : place(li, false); if (!c) continue;
+    const li = anyLayer(), c = place(li, false, kind === 'strong' || kind === 'patrol' ? 3.4 : 3); if (!c) continue;
     const def = ENEMY[kind];
     const e = { kind, x: c.x, y: c.y, layer: li, hp: def.hp, maxHp: def.hp, dps: def.dps, r: def.r, spd: def.spd, sight: def.sight * (.7 + rng() * .6), head: rng() * 6.28, leg: rng() * 6, hurt: 0, wait: 0, field: null, inv: !!def.inv, t: 0 };
     sub.enemies.push(e);
-    if (kind === 'friend') {
-      // карман за стенкой: ищем соседнюю клетку без прохода
-      const L = sub.layers[li], m = L.maze, cands = [];
-      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
-        const nx = c.cx + dx, ny = c.cy + dy; if (nx < 0 || ny < 0 || nx >= mw || ny >= mh) continue;
-        const open = dx === 1 ? m.R[c.cy][c.cx] : dx === -1 ? m.R[c.cy][nx] : dy === 1 ? m.D[c.cy][c.cx] : m.D[ny][c.cx];
-        if (!open) cands.push([nx, ny, dx, dy]);
-      }
+    if (kind === 'friend') { // тайник за стенкой: соседнее гнездо без хода
+      const cands = [];
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const nx = c.cx + dx, ny = c.cy + dy; if (nx >= 0 && ny >= 0 && nx < mw && ny < mh && free(li, nx, ny)) cands.push([nx, ny]); }
       if (cands.length) {
-        const [nx, ny, dx, dy] = pick(cands, rng), pc = cc(nx, ny);
-        for (let k = 0; k < 5; k++) addItem('coin', { x: pc.x + (rng() - .5) * 2.5, y: pc.y + (rng() - .5) * 2.5, layer: li }, {});
-        sub.friends.push({ e, li, dx, dy, cx: c.cx, cy: c.cy, T: cfg.friendT || 20, done: false });
+        const [nx, ny] = pick(cands, rng), pc = cc(nx, ny); used.add(key(li, nx, ny)); addRoom(li, pc.x, pc.y, true, 3);
+        for (let k = 0; k < 5; k++) addItem('coin', { x: pc.x + (rng() - .5) * 3.5, y: pc.y + (rng() - .5) * 3.5, layer: li }, {});
+        sub.friends.push({ e, li, ax: c.x, ay: c.y, bx: pc.x, by: pc.y, T: cfg.friendT || 20, done: false });
       }
     }
   }
+  // пустые гнёзда-обманки и старые ходы между гнёздами
+  for (let li = 0; li < nL; li++) {
+    const L = sub.layers[li];
+    for (let cy = 0; cy < mh; cy++) for (let cx = 0; cx < mw; cx++) if (free(li, cx, cy) && rng() < .1) { const p = cc(cx, cy); addRoom(li, p.x, p.y, false, 2.4 + rng() * .8); used.add(key(li, cx, cy)); }
+    const nodes = L.rooms.filter(r => !r.iso), seen = [nodes[0]], rest = nodes.slice(1); let gk = 1;
+    while (rest.length) { // каждое неизолированное гнездо достижимо по старым ходам
+      let bi = -1, bj = null, bd = 1e9;
+      for (let j = 0; j < rest.length; j++) for (const s2 of seen) { const d = Math.hypot(rest[j].x - s2.x, rest[j].y - s2.y); if (d < bd) { bd = d; bi = j; bj = s2; } }
+      const r = rest.splice(bi, 1)[0]; carveGallery(sub, L, bj.x, bj.y, r.x, r.y, 2.0, 0, gk++); seen.push(r);
+    }
+    for (const r of nodes) if (rng() < .3) { // лишние ходы — петли
+      let nb = null, bd = 1e9; for (const o of nodes) { if (o === r) continue; const d = Math.hypot(o.x - r.x, o.y - r.y); if (d < bd && d < 40) { bd = d; nb = o; } }
+      if (nb) carveGallery(sub, L, r.x, r.y, nb.x, nb.y, 2.0, 0, gk++);
+    }
+    for (const r of L.rooms) carveBlob(sub, L, r.x, r.y, r.rad, 0);
+  }
   for (let li = 0; li < nL; li++) { const L = sub.layers[li]; for (let i = 0; i < W * H; i++) setBase(sub, L, i); }
+  sub.ready = true;
   return sub;
 }
 
@@ -500,10 +492,8 @@ function update(dt) {
   for (const f of sub.friends) {
     if (f.done) continue; f.T -= dt;
     if (f.T <= 0) {
-      f.done = true; const m = sub.layers[f.li], x0 = f.dx === 1 ? B + 3 + f.cx * P + 4 : f.dx === -1 ? B + 3 + (f.cx - 1) * P + 4 : B + 3 + f.cx * P, y0 = f.dy === 1 ? B + 3 + f.cy * P + 4 : f.dy === -1 ? B + 3 + (f.cy - 1) * P + 4 : B + 3 + f.cy * P;
-      const w = f.dx ? 3 : 4, h = f.dx ? 4 : 3;
-      for (let y = y0; y < y0 + h; y++) for (let x = x0; x < x0 + w; x++) { const i = y * W + x; if (m.type[i] >= SOFT && m.type[i] !== STONE) { m.type[i] = TUN; m.tint[i] = 1; setBase(sub, m, i); } }
-      if (f.li === G.layer) { say('Дружественный короед прогрыз ход к тайнику!', 3); sfx.chew(.5); }
+      f.done = true; carveGallery(sub, sub.layers[f.li], f.ax, f.ay, f.bx, f.by, 1.9, 1, 3);
+      if (f.li === G.layer) { say('Дружественный короед прогрыз ход к тайнику!', 3); sfx.chew(.5); mmKey = ''; }
     }
   }
   updateEnemies(dt, L, sub);
@@ -511,7 +501,7 @@ function update(dt) {
   updatePecker(dt, L, sub);
   if (G.over) return;
   // подсказки
-  const TUT = [[0, 'Стрелки/WASD — ползти. Упёрся в стену — грызёшь её.'], [7, 'Собери личинок ☆ (нужно ' + G.tree.need + ') и найди выход-вылет из дерева.'], [16, 'Зелёный круг у врага — его можно победить, красный — беги!'], [26, 'Shift — рывок, Q — замедлить время дерева (улучшай Крылья и Голову).']];
+  const TUT = [[0, 'Дерево — сплошная древесина. Стрелки/WASD: ползи, упёрся — грызёшь свой ход.'], [7, 'Старые ходы — готовые дороги между гнёздами. Остальное прогрызай сам.'], [14, 'Собери личинок ☆ (нужно ' + G.tree.need + ') и найди ВЫЛЕТ. Личинку чуешь стрелкой.'], [24, 'Зелёный круг у врага — победишь, красный — беги! Shift — рывок, Q — время.']];
   if (G.ti === 0) while (G.tutI < TUT.length && G.t >= TUT[G.tutI][0]) { say(TUT[G.tutI][1], 5); G.tutI++; }
   for (const t of toasts) t.life -= dt; toasts = toasts.filter(t => t.life > 0);
   for (const q of pops) { q.y -= 5 * dt; q.life -= dt; } pops = pops.filter(q => q.life > 0);
@@ -583,9 +573,12 @@ function updateEnemies(dt, L, sub) {
         if (!moveEnt(e, L, sub, Math.cos(a) * e.spd, Math.sin(a) * e.spd, dt)) { e.x += (tx - e.x) * .08; e.y += (ty - e.y) * .08; }
       } else wander(e, L, sub, dt, .5);
     } else if (e.kind === 'patrol') {
+      if (e.wait > 0) { e.wait -= dt; wander(e, L, sub, dt, .4); continue; }
       if (!e.field || e.reach) {
-        let tries = 0, tx, ty; do { tx = 4 + ((Math.random() * (W - 8)) | 0); ty = 4 + ((Math.random() * (sub.H - 8)) | 0); tries++; } while (tries < 200 && !(L.type[ty * W + tx] === TUN && Math.hypot(tx - e.x, ty - e.y) > 25));
-        e.field = bfsField(L, sub, tx, ty, 900); e.reach = false;
+        const fe = bfsField(L, sub, e.x, e.y, 900), cand = [];
+        for (let tr = 0; tr < 400 && cand.length < 1; tr++) { const tx = 4 + ((Math.random() * (W - 8)) | 0), ty = 4 + ((Math.random() * (sub.H - 8)) | 0); if (fe[ty * W + tx] >= 25) cand.push([tx, ty]); }
+        if (!cand.length) { e.wait = 2; e.field = null; continue; }
+        e.field = bfsField(L, sub, cand[0][0], cand[0][1], 900); e.reach = false;
       }
       const f = e.field, ex = Math.floor(e.x), ey = Math.floor(e.y), cur = f[ey * W + ex];
       if (cur >= 0 && cur <= 3) e.reach = true;
@@ -679,7 +672,7 @@ function renderView() {
     const t = L.type[i];
     if (t === RESIN) Lt = Math.max(Lt, .55);
     r *= Lt; g *= Lt; bl *= Lt;
-    if (L.peck[i] && t === TUN) { r += 60 * pulse; g += 44 * pulse; }
+    if (L.peck[i] && t !== BARK) { const k = t === TUN ? 1 : .22; r += 60 * pulse * k; g += 44 * pulse * k; }
     d[pi] = r; d[pi + 1] = g; d[pi + 2] = bl; d[pi + 3] = 255;
   }
   octx.putImageData(vimg, 0, 0);
@@ -738,6 +731,14 @@ function drawWorld() {
     if (!e.inv && e.hp < e.maxHp) { ctx.fillStyle = '#300'; ctx.fillRect(x - 14, y - e.r * S - 14, 28, 4); ctx.fillStyle = '#e04030'; ctx.fillRect(x - 14, y - e.r * S - 14, 28 * e.hp / e.maxHp, 4); }
   }
   if (p.digTile >= 0) { const cx = p.digTile % sub.W, cy = (p.digTile / sub.W) | 0; ctx.strokeStyle = 'rgba(255,240,180,.9)'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc((cx + .5) * S, (cy + .5) * S, S * 1.1 + Math.sin(time * 30), 0, 7); ctx.stroke(); }
+  for (const it of sub.items) {
+    if (it.k !== 'larva' || it.layer !== G.layer) continue;
+    const dd = Math.hypot(it.x - p.x, it.y - p.y); if (dd > 26 || dd < 5) continue;
+    const a = Math.atan2(it.y - p.y, it.x - p.x), r0 = 4.2 * S, al = clamp(1.2 - dd / 26, .25, 1);
+    ctx.save(); ctx.translate(p.x * S + Math.cos(a) * r0, p.y * S + Math.sin(a) * r0); ctx.rotate(a); ctx.globalAlpha = al * (.7 + .3 * Math.sin(time * 6));
+    ctx.fillStyle = '#fff0a0'; ctx.strokeStyle = '#6a5a20'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(10, 0); ctx.lineTo(-6, -7); ctx.lineTo(-6, 7); ctx.closePath(); ctx.fill(); ctx.stroke(); ctx.restore();
+  }
+  ctx.globalAlpha = 1;
   const sp = SPECIES[meta.sp];
   if (hasBuff('speed') || G.boost > 0) { ctx.fillStyle = 'rgba(255,230,80,.3)'; ctx.beginPath(); ctx.arc(p.x * S, p.y * S, p.r * S * 1.9, 0, 7); ctx.fill(); }
   drawBeetle(p.x, p.y, p.a, p.r, sp.col, '#1c1208', p.leg, p.hurt > 0);
