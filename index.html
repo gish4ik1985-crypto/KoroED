@@ -107,20 +107,73 @@ function sndTone(freq, dur, vol, type, slide) {
   g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(.001, t + dur);
   o.connect(g); g.connect(master); o.start(t); o.stop(t + dur + .05);
 }
+function sndSweep(f0, f1, dur, vol, q) { // шуршащий «вжух» (шум с бегущим фильтром)
+  if (!AC || !meta.sound) return;
+  const src = AC.createBufferSource(); src.buffer = noiseBuf; const f = AC.createBiquadFilter(), g = AC.createGain(), t = AC.currentTime;
+  f.type = 'bandpass'; f.Q.value = q || 3; f.frequency.setValueAtTime(f0, t); f.frequency.exponentialRampToValueAtTime(f1, t + dur);
+  g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(vol, t + dur * .3); g.gain.exponentialRampToValueAtTime(.001, t + dur);
+  src.connect(f); f.connect(g); g.connect(master); src.start(t, Math.random()); src.stop(t + dur + .05);
+}
+function pluck(f, v, len) {
+  if (!AC || !meta.sound) return;
+  const o = AC.createOscillator(), o2 = AC.createOscillator(), g = AC.createGain(), t = AC.currentTime; len = len || 1.2;
+  o.type = 'triangle'; o2.type = 'sine'; o.frequency.value = f; o2.frequency.value = f * 2.01;
+  g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(v, t + .01); g.gain.exponentialRampToValueAtTime(.0005, t + len);
+  o.connect(g); o2.connect(g); g.connect(master); o.start(t); o2.start(t); o.stop(t + len + .05); o2.stop(t + len + .05);
+}
 const sfx = {
-  chew: d => sndNoise(900 + (1 - d) * 900, .07, .2, 2),
-  coin: () => sndTone(880, .1, .12, 'triangle', 1.5),
-  larva: () => { sndTone(523, .15, .18, 'triangle'); setTimeout(() => sndTone(784, .25, .18, 'triangle'), 110); },
-  nyash: () => { sndTone(400, .25, .16, 'square', 2.5); },
-  hurt: () => { sndTone(180, .25, .25, 'sawtooth', .4); sndNoise(300, .2, .3, 1); },
-  peck: () => { sndTone(140, .07, .35, 'square', .5); sndNoise(2200, .05, .2, 3); },
-  warn: () => sndTone(660, .15, .12, 'square'),
-  kill: () => sndTone(300, .18, .2, 'triangle', 2.2),
-  portal: () => sndTone(300, .35, .16, 'sine', 2.2),
-  win: () => { [523, 659, 784, 1047].forEach((f, i) => setTimeout(() => sndTone(f, .3, .18, 'triangle'), i * 140)); },
-  lose: () => { sndTone(300, .6, .2, 'sawtooth', .3); },
-  click: () => sndTone(600, .05, .08, 'square'),
+  // хруст: щелчок волокон + «тело» укуса; плотная древесина звучит ниже и глуше
+  chew: d => { const r = Math.random(); sndNoise(2600 + r * 1400 - d * 900, .03, .07, 3); sndNoise(420 + (1 - d) * 700 + r * 200, .07, .14 + d * .05, 1.6); },
+  coin: () => { sndTone(1320, .07, .08, 'triangle'); setTimeout(() => sndTone(1980, .16, .07, 'triangle'), 55); },
+  larva: () => { [523, 659, 784, 1047].forEach((f, i) => setTimeout(() => pluck(f, .1, .6), i * 70)); },
+  nyash: () => { sndTone(300, .35, .1, 'sine', 3); sndSweep(400, 3000, .35, .12); },
+  hurt: () => { sndTone(110, .22, .3, 'sine', .5); sndNoise(260, .18, .25, 1); },
+  peck: () => { sndTone(320, .05, .3, 'triangle', .55); sndNoise(1500, .035, .3, 5); },   // сухой деревянный «тук»
+  warn: () => { sndTone(880, .08, .08, 'square'); setTimeout(() => sndTone(660, .1, .08, 'square'), 90); },
+  kill: () => { sndNoise(700, .12, .25, 1.2); sndTone(420, .25, .14, 'triangle', .4); },
+  portal: () => { sndSweep(200, 1600, .5, .14, 2); sndTone(220, .5, .06, 'sine', 2); },
+  win: () => { [523, 659, 784, 1047, 784, 1047].forEach((f, i) => setTimeout(() => pluck(f, .14, .9), i * 150)); },
+  lose: () => { [392, 330, 262].forEach((f, i) => setTimeout(() => pluck(f, .12, 1.2), i * 260)); },
+  click: () => sndTone(700, .04, .06, 'triangle'),
 };
+// ---------- фон: гул внутри дерева, скрипы, птицы снаружи; тихая мелодия в меню ----------
+let amb = null, ambT = 2, musT = 0;
+function ambientOn(on) {
+  if (!AC) return;
+  if (on && meta.sound && !amb) {
+    const src = AC.createBufferSource(); src.buffer = noiseBuf; src.loop = true;
+    const f = AC.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 240;
+    const g = AC.createGain(), t = AC.currentTime; g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(.07, t + 1.5);
+    src.connect(f); f.connect(g); g.connect(master); src.start(); amb = { src, g };
+  } else if ((!on || !meta.sound) && amb) {
+    const a = amb; amb = null; a.g.gain.linearRampToValueAtTime(0, AC.currentTime + .5); setTimeout(() => { try { a.src.stop(); } catch (e) {} }, 600);
+  }
+}
+function creak() {
+  const o = AC.createOscillator(), f = AC.createBiquadFilter(), g = AC.createGain(), t = AC.currentTime, f0 = 60 + Math.random() * 60, d = .8 + Math.random();
+  o.type = 'sawtooth'; o.frequency.setValueAtTime(f0, t); o.frequency.linearRampToValueAtTime(f0 * (1.15 + Math.random() * .5), t + d);
+  f.type = 'bandpass'; f.frequency.value = 450 + Math.random() * 500; f.Q.value = 9;
+  g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(.045, t + d * .3); g.gain.linearRampToValueAtTime(0, t + d);
+  o.connect(f); f.connect(g); g.connect(master); o.start(t); o.stop(t + d + .05);
+}
+function chirp() {
+  const t0 = AC.currentTime, n = 2 + (Math.random() * 4 | 0), base = 2000 + Math.random() * 1800;
+  for (let i = 0; i < n; i++) { const o = AC.createOscillator(), g = AC.createGain(), t = t0 + i * (.09 + Math.random() * .06);
+    o.type = 'sine'; o.frequency.setValueAtTime(base, t); o.frequency.exponentialRampToValueAtTime(base * (1.2 + Math.random() * .4), t + .06);
+    g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(.022, t + .015); g.gain.exponentialRampToValueAtTime(.0008, t + .09); o.connect(g); g.connect(master); o.start(t); o.stop(t + .1); }
+}
+function ambientTick(dt) {
+  if (!AC || !meta.sound) return; ambT -= dt; if (ambT > 0) return; ambT = 2.5 + Math.random() * 5;
+  const zone = G && G.sub ? G.sub.id[0] : 'A';
+  if (Math.random() < (zone === 'C' ? .75 : zone === 'B' ? .35 : .12)) chirp(); else creak();
+}
+const PENTA = [220, 261.6, 293.7, 329.6, 392, 440, 523.3, 587.3];
+let musStep = 0;
+function musicTick(dt) {
+  if (!AC || !meta.sound) return; musT -= dt; if (musT > 0) return; musT = .45; musStep++;
+  if (musStep % 8 === 0) pluck(PENTA[(musStep / 8 | 0) % 2 ? 0 : 3] / 2, .05, 2.4);           // бас раз в такт
+  if (Math.random() < .7) pluck(PENTA[(Math.random() * PENTA.length) | 0], .035, 1.4);
+}
 
 // ===================== ДАННЫЕ =====================
 const AIR = 0, TUN = 1, SOFT = 2, MED = 3, DENSE = 4, RESIN = 5, STONE = 6, BARK = 7;
@@ -498,7 +551,7 @@ function update(dt) {
     if (gnawed) {
       p.gnaw = .12;
       if (resin && !hasBuff('regen')) hurt(2 * dt, true);
-      if ((p.chewT = (p.chewT || 0) - dt) <= 0) { p.chewT = .09; sfx.chew(dsum / gnawed / 6); if (Math.random() < .7) parts.push({ x: fx + dx * .8, y: fy + dy * .8, vx: (Math.random() - .5) * 12, vy: -Math.random() * 9, life: .45, c: resin ? '#f0a63e' : '#cfa56a' }); }
+      if ((p.chewT = (p.chewT || 0) - dt) <= 0) { p.chewT = .1 + Math.random() * .05; sfx.chew(dsum / gnawed / 6); if (Math.random() < .7) parts.push({ x: fx + dx * .8, y: fy + dy * .8, vx: (Math.random() - .5) * 12, vy: -Math.random() * 9, life: .45, c: resin ? '#f0a63e' : '#cfa56a' }); }
       p.leg += dt * 5;
     }
     if (moving) p.leg += dt * 14;
@@ -1168,6 +1221,8 @@ function frame(now) {
   const dt = Math.min(.05, (now - last) / 1000); last = now;
   ctx.setTransform(K, 0, 0, K, 0, 0); ctx.clearRect(0, 0, 960, 640); btns = [];
   if (state !== 'play') time += dt;
+  ambientOn(state === 'play' || state === 'pause'); if (state === 'play') ambientTick(dt);
+  if (['title', 'trees', 'pre', 'beetles', 'ach'].includes(state)) musicTick(dt);
   if (state === 'play') { update(dt); if (state === 'play') drawWorld(); }
   if (state === 'title') drawTitle(); else if (state === 'trees') drawTrees(); else if (state === 'pre') drawPre();
   else if (state === 'beetles') drawBeetles(); else if (state === 'ach') drawAch(); else if (state === 'result') drawResult(); else if (state === 'pause') drawPause(); else if (state === 'flyout') drawFlyout(dt);
@@ -1179,7 +1234,7 @@ if (location.hash) { if (location.hash.includes('touch')) touchMode = true; cons
     if (location.hash.includes('fly')) { G.larvae = 4; finish(true, 'тест'); G.flyT = 1.0; } } else if (['trees', 'pre', 'beetles', 'ach', 'title'].includes(h)) { if (h === 'pre') selTree = 1; state = h; } }
 requestAnimationFrame(frame);
 // хуки для автотестов
-window.__k = { update: dt => update(dt), startRun, get G() { return G; }, get state() { return state; }, set state(v) { state = v; }, keys, meta, TREES, finish, genSub, pickup, SPECIES, bfsField, enterSub };
+window.__k = { sfx, snd: { ambientOn, ambientTick, musicTick, creak, chirp }, update: dt => update(dt), startRun, get G() { return G; }, get state() { return state; }, set state(v) { state = v; }, keys, meta, TREES, finish, genSub, pickup, SPECIES, bfsField, enterSub };
 </script>
 </body>
 </html>
