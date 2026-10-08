@@ -1174,7 +1174,7 @@ function bg() {
   for (let i = 0; i < 14; i++) { const x = (i * 97 + 30) % 960, h = 300 + (i * 53) % 260; ctx.fillStyle = `rgba(30,48,22,${.25 + (i % 3) * .08})`; ctx.fillRect(x, 640 - h, 24 + (i % 4) * 8, h); }
 }
 function energyLine(y) {
-  tickEnergy(); const left = meta.energy >= ENERGY_MAX ? '' : ' · +1 через ' + fmtT(Math.max(0, ENERGY_MIN * 60 - (Date.now() - meta.eT) / 1000));
+  tickEnergy(); const left = meta.energy >= ENERGY_MAX ? '' : ' (восстановление: +1 через ' + fmtT(Math.max(0, ENERGY_MIN * 60 - (Date.now() - meta.eT) / 1000)) + ')';
   txt('Энергия: ' + meta.energy + ' / ' + ENERGY_MAX + left + '   ·   Монеты: ' + meta.coins + '   ·   Серебр. знаки: ' + meta.silver, 480, y, 16, '#ffe9a8');
 }
 function drawTitle() {
